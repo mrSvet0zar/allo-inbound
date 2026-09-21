@@ -1,0 +1,17 @@
+# Serveur temps réel
+fastapi>=0.115
+uvicorn[standard]>=0.32
+websockets>=13.0
+pydantic-settings>=2.5
+python-multipart>=0.0.12   # parsing des webhooks Twilio (form-encoded)
+
+# Téléphonie
+twilio>=9.3
+
+# Phase 2+
+anthropic>=0.40
+
+# Dev / tests
+pytest>=8.3
+pytest-asyncio>=0.24
+ruff>=0.7
