@@ -54,7 +54,7 @@ async def media_stream(ws: WebSocket) -> None:
             raw = await ws.receive_text()
             event, msg = parse_message(raw)
             if event is TwilioEvent.START:
-                session = CallSession(settings, parse_start(msg))
+                session = CallSession(settings, parse_start(msg), send_text=ws.send_text)
                 await session.start()
             elif event is TwilioEvent.MEDIA and session is not None:
                 await session.on_audio_chunk(decode_media_payload(msg))
