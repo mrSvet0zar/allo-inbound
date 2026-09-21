@@ -24,8 +24,11 @@ class Settings(BaseSettings):
     # TTS (Phase 2)
     elevenlabs_api_key: str = ""
 
-    # Base de données (Phase 3)
+    # Base de données — vide = backends en mémoire (dev sans infra)
     database_url: str = ""
+
+    # Numéro vers lequel transférer en cas d'escalade humaine (vide = pas de transfert)
+    human_transfer_number: str = ""
 
     # Serveur — URL publique (ngrok en dev, Fly.io en prod) utilisée
     # pour construire l'URL wss:// du Media Stream dans le TwiML

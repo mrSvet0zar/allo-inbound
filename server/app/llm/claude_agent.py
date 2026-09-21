@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from anthropic import AsyncAnthropic
 
-from app.llm.tools_rdv import SLOW_TOOLS, TOOL_DEFINITIONS, ToolExecutor
+from app.llm.toolbox import ALL_SLOW_TOOLS, ALL_TOOL_DEFINITIONS, AgentToolbox
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,26 @@ Tu parles au téléphone : tes réponses sont ORALES, courtes (1 à 3 phrases),
 sans listes, sans markdown, sans emojis. Nombres et heures en toutes lettres
 naturelles ("quatorze heures trente").
 
-Ton rôle : gérer les rendez-vous (vérifier les disponibilités, réserver,
-retrouver, annuler).
+Tu gères deux types de demandes :
+1. Les RENDEZ-VOUS : vérifier les disponibilités, réserver, déplacer,
+   retrouver, annuler.
+2. Le SUPPORT : répondre aux questions pratiques (horaires, adresse, tarifs,
+   documents, téléconsultation...) via la base de connaissances, et créer un
+   ticket de suivi si la réponse n'y figure pas.
+
+En début d'appel, si la demande n'est pas claire, oriente en une question
+simple : "C'est pour un rendez-vous, ou pour une question sur le cabinet ?"
 
 Règles impératives :
-- Avant de réserver ou d'annuler, répète les détails et demande une
+- Avant de réserver, déplacer ou annuler, répète les détails et demande une
   confirmation orale explicite ("Je confirme : ... c'est bien ça ?").
-  N'appelle book_appointment ou cancel_appointment qu'après un "oui" clair.
+  N'appelle book_appointment, modify_appointment ou cancel_appointment
+  qu'après un "oui" clair.
 - Vérifie toujours les disponibilités (check_availability) avant de proposer
   un horaire.
+- Pour toute question d'information, cherche d'abord dans la base de
+  connaissances (search_knowledge_base). Ne réponds jamais de mémoire. Si la
+  base ne contient pas la réponse, propose un ticket de suivi ou un transfert.
 - Si l'appelant demande un humain, ou pour toute réclamation, litige ou sujet
   sensible, appelle escalate_to_human immédiatement sans insister.
 - Si tu n'as pas compris, fais répéter poliment plutôt que de deviner.
@@ -81,9 +92,9 @@ class SentenceBuffer:
 class VoiceAgent:
     """Un agent par appel : conserve l'historique de conversation."""
 
-    def __init__(self, client: AsyncAnthropic, executor: ToolExecutor):
+    def __init__(self, client: AsyncAnthropic, toolbox: AgentToolbox):
         self._client = client
-        self._executor = executor
+        self._toolbox = toolbox
         self._messages: list[dict] = []
         self.tool_calls_count = 0
 
@@ -103,7 +114,7 @@ class VoiceAgent:
                         "cache_control": {"type": "ephemeral"},
                     }
                 ],
-                tools=TOOL_DEFINITIONS,
+                tools=ALL_TOOL_DEFINITIONS,
                 messages=self._messages,
             ) as stream:
                 async for event in stream:
@@ -129,14 +140,14 @@ class VoiceAgent:
             said_something = any(
                 b.type == "text" and b.text.strip() for b in response.content
             )
-            if not said_something and any(b.name in SLOW_TOOLS for b in tool_uses):
+            if not said_something and any(b.name in ALL_SLOW_TOOLS for b in tool_uses):
                 yield FILLER_SENTENCE
 
             tool_results = []
             for block in tool_uses:
                 self.tool_calls_count += 1
                 logger.info("Outil %s(%s)", block.name, block.input)
-                result = await self._executor.execute(block.name, dict(block.input))
+                result = await self._toolbox.execute(block.name, dict(block.input))
                 tool_results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": result}
                 )
@@ -147,4 +158,8 @@ class VoiceAgent:
 
     @property
     def escalation_requested(self) -> str | None:
-        return self._executor.escalation_requested
+        return self._toolbox.escalation_requested
+
+    @property
+    def toolbox(self) -> AgentToolbox:
+        return self._toolbox

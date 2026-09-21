@@ -88,11 +88,37 @@ async def test_invalid_date_returns_error_not_crash(executor):
     assert "error" in result
 
 
-def test_calendar_booking_stores_phone():
+async def test_modify_appointment_flow(executor):
+    booked = await _call(
+        executor,
+        "book_appointment",
+        {"date": MONDAY.isoformat(), "heure": "09:00", "nom": "Durand", "motif": "suivi"},
+    )
+    result = await _call(
+        executor,
+        "modify_appointment",
+        {"appointment_id": booked["appointment_id"], "date": MONDAY.isoformat(), "heure": "16:00"},
+    )
+    assert result["modifie"] is True
+    avail = await _call(executor, "check_availability", {"date": MONDAY.isoformat()})
+    assert "09:00" in avail["creneaux_disponibles"]  # ancien créneau libéré
+    assert "16:00" not in avail["creneaux_disponibles"]
+
+
+async def test_modify_unknown_appointment_errors(executor):
+    result = await _call(
+        executor,
+        "modify_appointment",
+        {"appointment_id": 999, "date": MONDAY.isoformat(), "heure": "09:00"},
+    )
+    assert "error" in result
+
+
+async def test_calendar_booking_stores_phone():
     cal = InMemoryCalendar()
-    appt = cal.book(datetime.combine(MONDAY, time(9, 0)), "Durand", "test", "+336")
+    appt = await cal.book(datetime.combine(MONDAY, time(9, 0)), "Durand", "test", "+336")
     assert appt.caller_phone == "+336"
-    assert cal.find_by_name("durand") == [appt]
+    assert await cal.find_by_name("durand") == [appt]
 
 
 def test_next_open_day_skips_weekend():

@@ -51,6 +51,25 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "strict": True,
     },
     {
+        "name": "modify_appointment",
+        "description": (
+            "Déplace un rendez-vous existant vers une nouvelle date/heure. À n'appeler "
+            "qu'après confirmation orale explicite. Vérifier la disponibilité du nouveau "
+            "créneau avec check_availability d'abord."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "appointment_id": {"type": "integer", "description": "Identifiant du RDV"},
+                "date": {"type": "string", "description": "Nouvelle date au format YYYY-MM-DD"},
+                "heure": {"type": "string", "description": "Nouvelle heure au format HH:MM"},
+            },
+            "required": ["appointment_id", "date", "heure"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
         "name": "cancel_appointment",
         "description": (
             "Annule un rendez-vous existant. À n'appeler qu'après confirmation orale "
@@ -98,7 +117,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 # Outils dont l'exécution peut être lente → l'agent dit une relance avant
-SLOW_TOOLS = {"check_availability", "book_appointment", "find_appointment"}
+SLOW_TOOLS = {"check_availability", "book_appointment", "modify_appointment", "find_appointment"}
 
 
 @dataclass
@@ -113,12 +132,12 @@ class Appointment:
 
 @dataclass
 class InMemoryCalendar:
-    """Calendrier de démo. Même interface que le futur backend Postgres."""
+    """Calendrier de démo (dev/tests). Interface async partagée avec PostgresCalendar."""
 
     appointments: list[Appointment] = field(default_factory=list)
     _next_id: int = 1
 
-    def available_slots(self, day: date) -> list[time]:
+    async def available_slots(self, day: date) -> list[time]:
         if day.weekday() >= 5:  # week-end fermé
             return []
         taken = {
@@ -128,20 +147,27 @@ class InMemoryCalendar:
         }
         return [s for s in OPENING_SLOTS if s not in taken]
 
-    def book(self, at: datetime, nom: str, motif: str, phone: str | None) -> Appointment:
+    async def book(self, at: datetime, nom: str, motif: str, phone: str | None) -> Appointment:
         appt = Appointment(self._next_id, at, nom, motif, phone)
         self._next_id += 1
         self.appointments.append(appt)
         return appt
 
-    def cancel(self, appointment_id: int) -> Appointment | None:
+    async def modify(self, appointment_id: int, new_at: datetime) -> Appointment | None:
+        for a in self.appointments:
+            if a.id == appointment_id and a.status == "confirmed":
+                a.scheduled_at = new_at
+                return a
+        return None
+
+    async def cancel(self, appointment_id: int) -> Appointment | None:
         for a in self.appointments:
             if a.id == appointment_id and a.status == "confirmed":
                 a.status = "cancelled"
                 return a
         return None
 
-    def find_by_name(self, nom: str) -> list[Appointment]:
+    async def find_by_name(self, nom: str) -> list[Appointment]:
         needle = nom.strip().lower()
         return [
             a
@@ -160,15 +186,15 @@ class ToolExecutor:
 
     async def execute(self, name: str, args: dict[str, Any]) -> str:
         try:
-            result = self._dispatch(name, args)
+            result = await self._dispatch(name, args)
         except (KeyError, ValueError) as exc:
             result = {"error": f"Arguments invalides : {exc}"}
         return json.dumps(result, ensure_ascii=False)
 
-    def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def _dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "check_availability":
             day = date.fromisoformat(args["date"])
-            slots = self.calendar.available_slots(day)
+            slots = await self.calendar.available_slots(day)
             return {
                 "date": day.isoformat(),
                 "creneaux_disponibles": [s.strftime("%H:%M") for s in slots],
@@ -177,22 +203,37 @@ class ToolExecutor:
             at = datetime.combine(
                 date.fromisoformat(args["date"]), time.fromisoformat(args["heure"])
             )
-            if at.time() not in self.calendar.available_slots(at.date()):
+            if at.time() not in await self.calendar.available_slots(at.date()):
                 return {"error": "Ce créneau n'est pas disponible."}
-            appt = self.calendar.book(at, args["nom"], args["motif"], self.caller_phone)
+            appt = await self.calendar.book(at, args["nom"], args["motif"], self.caller_phone)
             return {
                 "confirme": True,
                 "appointment_id": appt.id,
                 "date": at.date().isoformat(),
                 "heure": at.time().strftime("%H:%M"),
             }
+        if name == "modify_appointment":
+            new_at = datetime.combine(
+                date.fromisoformat(args["date"]), time.fromisoformat(args["heure"])
+            )
+            if new_at.time() not in await self.calendar.available_slots(new_at.date()):
+                return {"error": "Ce créneau n'est pas disponible."}
+            appt = await self.calendar.modify(int(args["appointment_id"]), new_at)
+            if appt is None:
+                return {"error": "Rendez-vous introuvable ou déjà annulé."}
+            return {
+                "modifie": True,
+                "appointment_id": appt.id,
+                "date": new_at.date().isoformat(),
+                "heure": new_at.time().strftime("%H:%M"),
+            }
         if name == "cancel_appointment":
-            appt = self.calendar.cancel(int(args["appointment_id"]))
+            appt = await self.calendar.cancel(int(args["appointment_id"]))
             if appt is None:
                 return {"error": "Rendez-vous introuvable ou déjà annulé."}
             return {"annule": True, "appointment_id": appt.id}
         if name == "find_appointment":
-            appts = self.calendar.find_by_name(args["nom"])
+            appts = await self.calendar.find_by_name(args["nom"])
             return {
                 "rendez_vous": [
                     {

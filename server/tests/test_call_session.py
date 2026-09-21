@@ -39,6 +39,7 @@ def _make_session(sent: list[str], agent_sentences=None, tts_chunks=None):
                 await asyncio.sleep(0)  # laisse une chance au barge-in
 
         agent_cls.return_value.run_turn = run_turn
+        agent_cls.return_value.escalation_requested = None
         session._agent.run_turn = run_turn
         session._tts.synthesize = synthesize
         session._tts.close = AsyncMock()

@@ -17,9 +17,13 @@ from dataclasses import dataclass, field
 from anthropic import AsyncAnthropic
 
 from app.config import Settings
+from app.db.database import Database
 from app.llm.claude_agent import VoiceAgent
+from app.llm.toolbox import AgentToolbox, InMemoryTicketRepo
 from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
 from app.stt.deepgram_stream import DeepgramConfig, DeepgramStream
+from app.support.knowledge_base import InMemoryKnowledgeBase
+from app.telephony.transfer import transfer_call_to_human
 from app.telephony.twilio_media import (
     MediaStreamStart,
     build_clear_message,
@@ -32,8 +36,10 @@ logger = logging.getLogger(__name__)
 # Callback d'envoi d'un message texte sur le WebSocket Twilio
 SendText = Callable[[str], Awaitable[None]]
 
-# Calendrier partagé entre les appels (Phase 3 : PostgreSQL)
+# Backends en mémoire partagés entre les appels quand il n'y a pas de base
 shared_calendar = InMemoryCalendar()
+shared_tickets = InMemoryTicketRepo()
+shared_kb = InMemoryKnowledgeBase()
 
 
 @dataclass
@@ -59,14 +65,22 @@ class CallStats:
 class CallSession:
     """Cycle de vie d'un appel : créé au `start` du Media Stream, fermé au `stop`."""
 
-    def __init__(self, settings: Settings, stream_info: MediaStreamStart, send_text: SendText):
+    def __init__(
+        self,
+        settings: Settings,
+        stream_info: MediaStreamStart,
+        send_text: SendText,
+        db: Database | None = None,
+    ):
         self.settings = settings
         self.stream_info = stream_info
         self._send_text = send_text
+        self._db = db
         self.stats = CallStats()
         self.transcript_lines: list[str] = []
         self._utterance_parts: list[str] = []
         self._speaking_task: asyncio.Task | None = None
+        self._transferred = False
 
         self._stt = DeepgramStream(
             DeepgramConfig(
@@ -77,10 +91,14 @@ class CallSession:
             on_transcript=self._on_transcript,
         )
         self._tts = ElevenLabsTTS(settings.elevenlabs_api_key)
-        self._agent = VoiceAgent(
-            AsyncAnthropic(api_key=settings.anthropic_api_key),
-            ToolExecutor(shared_calendar, caller_phone=stream_info.caller_phone),
+        calendar = db.calendar if db else shared_calendar
+        toolbox = AgentToolbox(
+            rdv_executor=ToolExecutor(calendar, caller_phone=stream_info.caller_phone),
+            knowledge_base=db.knowledge_base if db else shared_kb,
+            ticket_repo=db.tickets if db else shared_tickets,
+            caller_phone=stream_info.caller_phone,
         )
+        self._agent = VoiceAgent(AsyncAnthropic(api_key=settings.anthropic_api_key), toolbox)
 
     async def start(self) -> None:
         await self._stt.connect()
@@ -148,6 +166,12 @@ class CallSession:
                     await self._send_text(
                         build_media_message(self.stream_info.stream_sid, audio_chunk)
                     )
+            # L'agent a demandé une escalade : transfert réel une fois sa
+            # phrase d'annonce diffusée
+            if self._agent.escalation_requested and not self._transferred:
+                self._transferred = await transfer_call_to_human(
+                    self.settings, self.stream_info.call_sid
+                )
         except asyncio.CancelledError:
             raise  # barge-in : rien à faire, le buffer Twilio est déjà vidé
         except Exception:
@@ -158,6 +182,7 @@ class CallSession:
             await self._cancel_speaking()
         await self._stt.close()
         await self._tts.close()
+        await self._save_call_log()
         logger.info(
             "Appel terminé call_sid=%s durée=%ds tours=%d barge_ins=%d latence_moy=%sms outils=%d",
             self.stream_info.call_sid,
@@ -167,3 +192,21 @@ class CallSession:
             self.stats.avg_turn_latency_ms,
             self._agent.tool_calls_count,
         )
+
+    async def _save_call_log(self) -> None:
+        if self._db is None:
+            return
+        toolbox = self._agent.toolbox
+        try:
+            await self._db.call_logs.save(
+                twilio_call_sid=self.stream_info.call_sid,
+                use_case=toolbox.use_case,
+                transcript="\n".join(self.transcript_lines),
+                duration_seconds=self.stats.duration_seconds,
+                outcome=toolbox.outcome,
+                escalated_to_human=self._transferred,
+                avg_turn_latency_ms=self.stats.avg_turn_latency_ms,
+                tool_calls_count=self._agent.tool_calls_count,
+            )
+        except Exception:
+            logger.exception("Échec de l'enregistrement du call log")

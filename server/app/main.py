@@ -7,12 +7,14 @@ Deux endpoints :
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 
 from app.config import get_settings
 from app.core.call_session import CallSession
+from app.db.database import Database
 from app.telephony.twilio_media import (
     TwilioEvent,
     build_stream_twiml,
@@ -28,7 +30,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Allo-IA — serveur temps réel")
+db: Database | None = None
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Connexion PostgreSQL si configurée, sinon backends en mémoire."""
+    global db
+    if settings.database_url:
+        db = await Database.connect(settings.database_url)
+        await db.seed_knowledge_base_if_empty()
+    else:
+        logger.warning("DATABASE_URL absente — backends en mémoire (mode dev)")
+    yield
+    if db is not None:
+        await db.close()
+        db = None
+
+
+app = FastAPI(title="Allo-IA — serveur temps réel", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -54,7 +74,7 @@ async def media_stream(ws: WebSocket) -> None:
             raw = await ws.receive_text()
             event, msg = parse_message(raw)
             if event is TwilioEvent.START:
-                session = CallSession(settings, parse_start(msg), send_text=ws.send_text)
+                session = CallSession(settings, parse_start(msg), send_text=ws.send_text, db=db)
                 await session.start()
             elif event is TwilioEvent.MEDIA and session is not None:
                 await session.on_audio_chunk(decode_media_payload(msg))
