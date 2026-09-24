@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # Numéro vers lequel transférer en cas d'escalade humaine (vide = pas de transfert)
     human_transfer_number: str = ""
 
+    # Clé partagée protégeant l'API admin du dashboard (vide = accès ouvert, dev local)
+    admin_api_key: str = ""
+
+    # Origines autorisées à appeler l'API admin (dashboard Next.js), séparées par des virgules
+    dashboard_origins: str = "http://localhost:3000"
+
+    @property
+    def dashboard_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.dashboard_origins.split(",") if o.strip()]
+
     # Serveur — URL publique (ngrok en dev, Fly.io en prod) utilisée
     # pour construire l'URL wss:// du Media Stream dans le TwiML
     public_host: str = "localhost:8000"

@@ -26,6 +26,7 @@ class KBEntry:
 
 class KnowledgeBase(Protocol):
     async def search(self, query: str, k: int = 3) -> list[KBEntry]: ...
+    async def list_all(self) -> list[KBEntry]: ...
 
 
 # FAQ de démo : cabinet fictif (le cas d'usage de démonstration)
@@ -99,3 +100,6 @@ class InMemoryKnowledgeBase:
         scored = [(score, entry) for score, entry in scored if score > 0]
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [entry for _, entry in scored[:k]]
+
+    async def list_all(self) -> list[KBEntry]:
+        return [entry for entry, _ in self._entries]

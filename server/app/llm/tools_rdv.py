@@ -175,6 +175,17 @@ class InMemoryCalendar:
             if a.status == "confirmed" and needle in a.nom.lower()
         ]
 
+    async def list_upcoming(self, from_day: date, to_day: date) -> list[Appointment]:
+        """RDV confirmés dans l'intervalle [from_day, to_day] — dashboard admin."""
+        return sorted(
+            (
+                a
+                for a in self.appointments
+                if a.status == "confirmed" and from_day <= a.scheduled_at.date() <= to_day
+            ),
+            key=lambda a: a.scheduled_at,
+        )
+
 
 class ToolExecutor:
     """Exécute les appels d'outils de l'agent et renvoie un résultat JSON (texte)."""

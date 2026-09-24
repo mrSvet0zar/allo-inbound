@@ -21,6 +21,7 @@ from app.db.database import Database
 from app.llm.claude_agent import VoiceAgent
 from app.llm.toolbox import AgentToolbox, InMemoryTicketRepo
 from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
+from app.observability.call_logs import CallLogEntry, CallLogRepo, InMemoryCallLogRepo
 from app.stt.deepgram_stream import DeepgramConfig, DeepgramStream
 from app.support.knowledge_base import InMemoryKnowledgeBase
 from app.telephony.transfer import transfer_call_to_human
@@ -40,6 +41,7 @@ SendText = Callable[[str], Awaitable[None]]
 shared_calendar = InMemoryCalendar()
 shared_tickets = InMemoryTicketRepo()
 shared_kb = InMemoryKnowledgeBase()
+shared_call_logs = InMemoryCallLogRepo()
 
 
 @dataclass
@@ -194,19 +196,20 @@ class CallSession:
         )
 
     async def _save_call_log(self) -> None:
-        if self._db is None:
-            return
+        repo: CallLogRepo = self._db.call_logs if self._db else shared_call_logs
         toolbox = self._agent.toolbox
         try:
-            await self._db.call_logs.save(
-                twilio_call_sid=self.stream_info.call_sid,
-                use_case=toolbox.use_case,
-                transcript="\n".join(self.transcript_lines),
-                duration_seconds=self.stats.duration_seconds,
-                outcome=toolbox.outcome,
-                escalated_to_human=self._transferred,
-                avg_turn_latency_ms=self.stats.avg_turn_latency_ms,
-                tool_calls_count=self._agent.tool_calls_count,
+            await repo.save(
+                CallLogEntry(
+                    twilio_call_sid=self.stream_info.call_sid,
+                    use_case=toolbox.use_case,
+                    transcript="\n".join(self.transcript_lines),
+                    duration_seconds=self.stats.duration_seconds,
+                    outcome=toolbox.outcome,
+                    escalated_to_human=self._transferred,
+                    avg_turn_latency_ms=self.stats.avg_turn_latency_ms,
+                    tool_calls_count=self._agent.tool_calls_count,
+                )
             )
         except Exception:
             logger.exception("Échec de l'enregistrement du call log")

@@ -31,6 +31,7 @@ _SUPPORT_TOOLS = {"search_knowledge_base", "create_support_ticket"}
 
 class TicketRepo(Protocol):
     async def create(self, resume: str, priorite: str, caller_phone: str | None) -> int: ...
+    async def list_open(self) -> list[dict]: ...
 
 
 @dataclass
@@ -42,9 +43,18 @@ class InMemoryTicketRepo:
     async def create(self, resume: str, priorite: str, caller_phone: str | None) -> int:
         ticket_id = len(self.tickets) + 1
         self.tickets.append(
-            {"id": ticket_id, "resume": resume, "priorite": priorite, "caller_phone": caller_phone}
+            {
+                "id": ticket_id,
+                "resume": resume,
+                "priorite": priorite,
+                "caller_phone": caller_phone,
+                "status": "open",
+            }
         )
         return ticket_id
+
+    async def list_open(self) -> list[dict]:
+        return [t for t in self.tickets if t["status"] == "open"]
 
 
 class AgentToolbox:

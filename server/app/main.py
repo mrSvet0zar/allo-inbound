@@ -10,8 +10,11 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Form, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from app.api.admin import router as admin_router
+from app.api.admin import set_db
 from app.config import get_settings
 from app.core.call_session import CallSession
 from app.db.database import Database
@@ -42,13 +45,22 @@ async def lifespan(_: FastAPI):
         await db.seed_knowledge_base_if_empty()
     else:
         logger.warning("DATABASE_URL absente — backends en mémoire (mode dev)")
+    set_db(db)
     yield
     if db is not None:
         await db.close()
         db = None
+        set_db(None)
 
 
 app = FastAPI(title="Allo-IA — serveur temps réel", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.dashboard_origins_list,
+    allow_methods=["GET"],
+    allow_headers=["X-Admin-Key"],
+)
+app.include_router(admin_router)
 
 
 @app.get("/health")

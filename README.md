@@ -4,7 +4,9 @@ Assistant vocal IA qui répond à un **vrai numéro de téléphone** et gère de
 d'usage : **prise de rendez-vous** (vérifier, réserver, modifier, annuler) et
 **support client** (FAQ via RAG, tickets, escalade vers un humain).
 
-> 🚧 Projet en cours — Phase 1 (fondations téléphonie) implémentée.
+> 🚧 Projet portfolio — Phases 1 à 5 implémentées (téléphonie → agent
+> conversationnel → deux cas d'usage → fiabilité → dashboard admin). Reste :
+> déploiement réel (Fly.io/Railway + Vercel).
 
 ## Architecture
 
@@ -12,14 +14,19 @@ d'usage : **prise de rendez-vous** (vérifier, réserver, modifier, annuler) et
 Appel entrant → Twilio Media Streams (WebSocket, μ-law 8kHz)
              → Serveur FastAPI (orchestration, asyncio)
              → Deepgram STT streaming (endpointing = fin de tour de parole)
-             → Claude (tool_use : RDV, RAG support, escalade)   [Phase 2]
-             → TTS streaming phrase par phrase                   [Phase 2]
+             → Claude (tool_use : RDV, RAG support, escalade)
+             → TTS streaming (ElevenLabs) phrase par phrase, barge-in
              → Retour audio vers l'appelant
+
+             → PostgreSQL (RDV, tickets, base de connaissances, call_logs)
+             → API admin (lecture seule) → Dashboard Next.js
 ```
 
-Le serveur temps réel maintient un WebSocket ouvert pendant toute la durée de
-chaque appel → déployé sur Fly.io/Railway (pas de serverless). Le dashboard
-admin (Next.js, consultation) sera déployé séparément sur Vercel.
+Le serveur temps réel (`server/`) maintient un WebSocket ouvert pendant toute
+la durée de chaque appel → destiné à Fly.io/Railway (pas de serverless). Le
+dashboard admin (`dashboard/`, Next.js, consultation seule) est déployé
+séparément, typiquement sur Vercel, et consomme l'API admin en lecture seule
+du serveur temps réel.
 
 ## Transparence & conformité
 
@@ -62,7 +69,36 @@ python -m eval.run_scenarios --only rdv_simple     # un seul scénario
 python -m eval.run_scenarios --json report.json    # export détaillé
 ```
 
+## Dashboard admin
+
+Consultation en lecture seule des appels (avec transcript), des rendez-vous
+à venir, des tickets ouverts et des alertes basiques (dérive de latence,
+taux d'escalade anormal), plus la page de transparence/consentement
+publique.
+
+```bash
+cd dashboard
+npm install
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL, NEXT_PUBLIC_ADMIN_KEY
+npm run dev
+```
+
+Le serveur temps réel doit tourner en parallèle et autoriser l'origine du
+dashboard via `DASHBOARD_ORIGINS` (cf `server/.env.example`) ; si
+`ADMIN_API_KEY` est configurée côté serveur, le dashboard doit envoyer la
+même valeur dans `NEXT_PUBLIC_ADMIN_KEY`.
+
+## Observabilité
+
+Chaque appel est loggé (durée, tours, outils, résultat, latence moyenne) en
+base (ou en mémoire sans `DATABASE_URL`). `app/observability/alerting.py`
+calcule deux signaux à partir des 100 derniers appels — taux d'escalade
+anormal (> 30 %) et dérive de latence (moyenne > 1.2s, P95 > 2s) — affichés
+en bandeau sur le dashboard.
+
 ## Roadmap
 
-Voir [CLAUDE.md](CLAUDE.md) — phases : téléphonie ✅ → boucle conversationnelle
-(Claude + TTS + barge-in) → deux cas d'usage → latence/fiabilité → dashboard.
+Voir [CLAUDE.md](CLAUDE.md) pour le détail des 5 phases. Il reste le
+déploiement réel : serveur temps réel sur Fly.io/Railway, dashboard sur
+Vercel, base Supabase, et les clés API (Twilio, Deepgram, ElevenLabs,
+Anthropic) à provisionner.
