@@ -48,6 +48,20 @@ dans `.env` sur l'hôte ngrok.
 cd server && pytest
 ```
 
+### Scénarios conversationnels rejoués
+
+Avant chaque déploiement, 16 scénarios types (RDV simple, créneau indisponible,
+annulation, support, escalade, hors-sujet...) sont rejoués contre le vrai agent
+(Claude réel, pipeline audio court-circuité) avec vérification des outils
+appelés, du résultat et des confirmations orales — plus la latence texte par
+tour (objectif global < 1.2s, cf CLAUDE.md) :
+
+```bash
+cd server && python -m eval.run_scenarios          # nécessite ANTHROPIC_API_KEY
+python -m eval.run_scenarios --only rdv_simple     # un seul scénario
+python -m eval.run_scenarios --json report.json    # export détaillé
+```
+
 ## Roadmap
 
 Voir [CLAUDE.md](CLAUDE.md) — phases : téléphonie ✅ → boucle conversationnelle

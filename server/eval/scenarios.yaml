@@ -1,0 +1,177 @@
+# Scénarios conversationnels rejoués avant chaque déploiement (cf CLAUDE.md).
+#
+# Chaque scénario simule l'appelant au niveau texte (le STT/TTS et le barge-in
+# sont couverts par les tests unitaires du pipeline). Les tours de l'appelant
+# sont scriptés ; les attentes portent sur les outils appelés, le résultat de
+# l'appel et le comportement (confirmation avant action engageante).
+#
+# Dates fixes pour la reproductibilité : lundi 5 octobre 2026 → vendredi 9.
+# `setup.appointments` pré-remplit le calendrier (créneaux occupés ou RDV
+# existants de l'appelant).
+
+- name: rdv_simple
+  description: Prise de RDV directe, l'appelant donne tout
+  turns:
+    - "Bonjour, je voudrais prendre rendez-vous le lundi 5 octobre au matin."
+    - "9 heures 30, c'est très bien. Je m'appelle Martin Dupont, c'est pour une consultation de suivi."
+    - "Oui, c'est bien ça, je confirme."
+  expect:
+    tools_called: [check_availability, book_appointment]
+    confirmation_before: book_appointment
+    outcome: booked
+    use_case: rdv
+
+- name: rdv_negociation_creneau
+  description: Le créneau souhaité est pris, l'agent doit proposer une alternative
+  setup:
+    appointments:
+      - { date: "2026-10-05", heure: "09:00", nom: "Occupant", motif: "x" }
+      - { date: "2026-10-05", heure: "09:30", nom: "Occupant", motif: "x" }
+      - { date: "2026-10-05", heure: "10:00", nom: "Occupant", motif: "x" }
+  turns:
+    - "Bonjour, je voudrais un rendez-vous lundi 5 octobre à 9 heures."
+    - "Bon, alors plutôt l'après-midi, 15 heures si c'est possible. Je suis Claire Petit, pour un bilan."
+    - "Oui je confirme."
+  expect:
+    tools_called: [check_availability, book_appointment]
+    outcome: booked
+
+- name: rdv_annulation
+  description: Annulation d'un RDV existant retrouvé par nom
+  setup:
+    appointments:
+      - { date: "2026-10-06", heure: "14:00", nom: "Bernard Leroy", motif: "consultation" }
+  turns:
+    - "Bonjour, je dois annuler mon rendez-vous de mardi. Je suis Bernard Leroy."
+    - "Oui, celui de 14 heures, c'est ça. Je confirme l'annulation."
+  expect:
+    tools_called: [find_appointment, cancel_appointment]
+    confirmation_before: cancel_appointment
+    outcome: cancelled
+
+- name: rdv_deplacement
+  description: Déplacement d'un RDV existant vers un autre jour
+  setup:
+    appointments:
+      - { date: "2026-10-06", heure: "10:00", nom: "Sophie Marchand", motif: "suivi" }
+  turns:
+    - "Bonjour, je suis Sophie Marchand, je voudrais déplacer mon rendez-vous de mardi 10 heures au jeudi 8 octobre, même heure si possible."
+    - "Oui, jeudi 10 heures, je confirme."
+  expect:
+    tools_called: [find_appointment, modify_appointment]
+    outcome: booked
+
+- name: rdv_weekend_impossible
+  description: Demande un samedi — l'agent doit expliquer et proposer un jour ouvré
+  turns:
+    - "Bonjour, je voudrais un rendez-vous samedi 10 octobre."
+    - "Ah d'accord, tant pis. Alors vendredi 9 octobre à 11 heures ? Je suis Paul Girard, pour une consultation."
+    - "Oui je confirme."
+  expect:
+    tools_called: [book_appointment]
+    outcome: booked
+
+- name: rdv_sans_confirmation_pas_de_resa
+  description: L'appelant ne confirme jamais — aucune réservation ne doit partir
+  turns:
+    - "Bonjour, est-ce qu'il y a de la place lundi 5 octobre ?"
+    - "D'accord, merci, je vais réfléchir et je rappellerai. Au revoir."
+  expect:
+    tools_called: [check_availability]
+    tools_not_called: [book_appointment]
+    outcome: abandoned
+
+- name: support_horaires
+  description: Question factuelle — réponse via la base de connaissances
+  turns:
+    - "Bonjour, quels sont vos horaires d'ouverture ?"
+    - "Parfait, merci beaucoup, au revoir."
+  expect:
+    tools_called: [search_knowledge_base]
+    outcome: resolved
+    use_case: support
+
+- name: support_acces
+  description: Question sur l'adresse et l'accès
+  turns:
+    - "Bonjour, où se trouve le cabinet exactement ? Il y a un parking ?"
+    - "Très bien, merci, bonne journée."
+  expect:
+    tools_called: [search_knowledge_base]
+    agent_says: "Bellecour|République|parking"
+    outcome: resolved
+
+- name: support_tarifs_mutuelle
+  description: Question tarifs + mutuelle
+  turns:
+    - "Bonjour, combien coûte une consultation et est-ce que vous prenez les mutuelles ?"
+    - "D'accord, merci."
+  expect:
+    tools_called: [search_knowledge_base]
+    agent_says: "60|soixante"
+    outcome: resolved
+
+- name: support_hors_base_ticket
+  description: Question sans réponse en base — proposer et créer un ticket
+  turns:
+    - "Bonjour, j'aurais besoin d'un duplicata de ma facture du mois dernier."
+    - "Oui, créez une demande, je suis monsieur Fabre, ce n'est pas urgent."
+  expect:
+    tools_called: [search_knowledge_base, create_support_ticket]
+    outcome: resolved
+
+- name: escalade_explicite
+  description: L'appelant demande un humain — transfert immédiat sans insister
+  turns:
+    - "Bonjour, je veux parler à quelqu'un, un vrai conseiller, pas un robot."
+  expect:
+    tools_called: [escalate_to_human]
+    outcome: escalated
+
+- name: escalade_litige
+  description: Réclamation/litige — escalade systématique (sujet sensible)
+  turns:
+    - "Bonjour, on m'a facturé deux fois ma consultation, c'est inadmissible, je veux être remboursé immédiatement."
+  expect:
+    tools_called: [escalate_to_human]
+    tools_not_called: [book_appointment]
+    outcome: escalated
+
+- name: hors_sujet
+  description: Demande hors périmètre — le dire simplement, sans inventer
+  turns:
+    - "Bonjour, vous pouvez me donner la météo de demain à Lyon ?"
+    - "Ah oui, d'accord. Non merci, rien d'autre, au revoir."
+  expect:
+    tools_not_called: [book_appointment, create_support_ticket]
+    outcome: abandoned
+
+- name: orientation_ambigue
+  description: Début d'appel flou — l'agent doit poser la question d'orientation
+  turns:
+    - "Euh, bonjour, voilà, en fait je vous appelle parce que... voilà quoi."
+    - "C'est pour un rendez-vous, mercredi 7 octobre vers 14 heures, je suis Julien Morel, consultation classique."
+    - "Oui c'est bien ça, je confirme."
+  expect:
+    tools_called: [book_appointment]
+    outcome: booked
+
+- name: mixte_question_puis_rdv
+  description: Une question support puis une prise de RDV dans le même appel
+  turns:
+    - "Bonjour, d'abord une question : faut-il apporter des documents pour une première consultation ?"
+    - "Parfait. Du coup je voudrais prendre rendez-vous, vendredi 9 octobre à 9 heures. Amélie Rousseau, première consultation."
+    - "Je confirme, oui."
+  expect:
+    tools_called: [search_knowledge_base, book_appointment]
+    outcome: booked
+
+- name: teleconsultation
+  description: Question téléconsultation — jours et modalités
+  turns:
+    - "Bonjour, est-ce que vous faites des consultations à distance, en visio ?"
+    - "Super, merci pour l'info, au revoir."
+  expect:
+    tools_called: [search_knowledge_base]
+    agent_says: "mardi|jeudi"
+    outcome: resolved
