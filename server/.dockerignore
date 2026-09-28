@@ -1,0 +1,18 @@
+# flyctl launch added from .pytest_cache/.gitignore
+# Created by pytest automatically.
+.pytest_cache/**/*
+
+# flyctl launch added from .ruff_cache/.gitignore
+# Automatically created by ruff.
+.ruff_cache/**/*
+fly.toml
+
+# Ajouté manuellement — le générateur flyctl n'a repris que les .gitignore
+# internes à server/, pas le .gitignore racine du monorepo.
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+tests/
+eval/
