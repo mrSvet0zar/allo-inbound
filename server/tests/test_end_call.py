@@ -12,6 +12,7 @@ from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
 from app.support.knowledge_base import InMemoryKnowledgeBase
 from app.telephony.transfer import hang_up_call
 from app.telephony.twilio_media import MediaStreamStart
+from tests.fakes import FakeTtsStream
 
 
 def _make_toolbox():
@@ -70,16 +71,13 @@ def _make_session(end_call: bool):
             send_text=AsyncMock(),
         )
 
-        async def run_turn(_):
+        async def run_turn(_, confirmed=None):
             yield "Au revoir !"
-
-        async def synthesize(_):
-            yield b"\x00"
 
         agent_cls.return_value.escalation_requested = None
         agent_cls.return_value.end_call_requested = end_call
         session._agent.run_turn = run_turn
-        session._tts.synthesize = synthesize
+        session._tts.acquire_stream = AsyncMock(side_effect=lambda: FakeTtsStream([b"\x00"]))
         session._stt = AsyncMock()
         return session
 

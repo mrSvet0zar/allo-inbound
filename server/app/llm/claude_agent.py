@@ -6,6 +6,7 @@ Modèle : Haiku 4.5 (latence, cf CLAUDE.md), prompt caching sur le system
 prompt et les définitions d'outils.
 """
 
+import asyncio
 import logging
 import random
 import re
@@ -185,6 +186,7 @@ class VoiceAgent:
         self._toolbox = toolbox
         self._language = language if language in _LANGUAGE_DIRECTIVES else "fr"
         self._messages: list[dict] = []
+        self._turn_start_index: int | None = None
         # Phrases émises depuis le dernier ajout à l'historique : si le tour
         # est interrompu (tâche annulée par le barge-in), elles sont
         # réinjectées comme réponse partielle au début du tour suivant.
@@ -201,9 +203,31 @@ class VoiceAgent:
             {"role": "assistant", "content": f"{spoken} {_INTERRUPTION_NOTES[self._language]}"}
         )
 
-    async def run_turn(self, user_text: str) -> AsyncIterator[str]:
-        """Traite un tour de parole de l'appelant et émet des phrases de réponse."""
+    def rollback_turn(self) -> None:
+        """Annule un tour spéculatif dont l'audio n'a jamais été diffusé.
+
+        Retire de l'historique le message utilisateur (et tout ce qui suit)
+        du tour en cours, et oublie les phrases générées mais jamais
+        prononcées — elles ne doivent surtout pas être réinjectées comme
+        « paroles interrompues », l'appelant ne les a jamais entendues.
+        """
+        if self._turn_start_index is not None:
+            del self._messages[self._turn_start_index :]
+            self._turn_start_index = None
+        self._pending_spoken = []
+
+    async def run_turn(
+        self, user_text: str, confirmed: asyncio.Event | None = None
+    ) -> AsyncIterator[str]:
+        """Traite un tour de parole de l'appelant et émet des phrases de réponse.
+
+        `confirmed` (exécution spéculative) : le texte peut se générer avant
+        que la fin de parole soit confirmée, mais AUCUN outil ne s'exécute
+        tant que l'événement n'est pas levé — pas de réservation déclenchée
+        par un tour qui sera peut-être annulé.
+        """
         self._flush_interrupted_speech()
+        self._turn_start_index = len(self._messages)
         self._messages.append({"role": "user", "content": user_text})
 
         for _ in range(MAX_TOOL_ROUNDS):
@@ -256,6 +280,11 @@ class VoiceAgent:
                 filler = random.choice(FILLER_SENTENCES[self._language])
                 self._pending_spoken.append(filler)
                 yield filler
+
+            # Garde spéculative : aucun effet de bord tant que la fin de
+            # parole de l'appelant n'est pas confirmée
+            if confirmed is not None:
+                await confirmed.wait()
 
             tool_results = []
             for block in tool_uses:

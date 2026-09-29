@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
+from tests.fakes import FakeTtsStream
 
 
 def _twilio_events():
@@ -29,7 +30,9 @@ def _twilio_events():
 def test_full_call_sequence(mock_stt_cls, mock_tts_cls):
     mock_stt = AsyncMock()
     mock_stt_cls.return_value = mock_stt
-    mock_tts_cls.return_value = AsyncMock()
+    mock_tts = AsyncMock()
+    mock_tts.acquire_stream = AsyncMock(side_effect=lambda: FakeTtsStream([b"\x00"]))
+    mock_tts_cls.return_value = mock_tts
 
     client = TestClient(app)
     with client.websocket_connect("/media-stream") as ws:

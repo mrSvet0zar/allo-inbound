@@ -10,6 +10,7 @@ from app.config import Settings
 from app.core.call_session import CallSession
 from app.telephony.twilio_media import MediaStreamStart
 from app.tts.elevenlabs_stream import VOICE_IDS_BY_LANGUAGE
+from tests.fakes import FakeTtsStream
 
 
 def _make_session(sent: list[str], agent_sentences=None, tts_chunks=None):
@@ -30,20 +31,17 @@ def _make_session(sent: list[str], agent_sentences=None, tts_chunks=None):
         )
         stt_cls.assert_called_once()
 
-        async def run_turn(_):
+        async def run_turn(_, confirmed=None):
             for s in agent_sentences or []:
                 yield s
-
-        async def synthesize(_):
-            for c in tts_chunks or []:
-                yield c
-                await asyncio.sleep(0)  # laisse une chance au barge-in
 
         agent_cls.return_value.run_turn = run_turn
         agent_cls.return_value.escalation_requested = None
         agent_cls.return_value.end_call_requested = False
         session._agent.run_turn = run_turn
-        session._tts.synthesize = synthesize
+        session._tts.acquire_stream = AsyncMock(
+            side_effect=lambda: FakeTtsStream(tts_chunks or [])
+        )
         session._tts.close = AsyncMock()
         session._stt = AsyncMock()
         return session
@@ -72,7 +70,9 @@ async def test_interim_parts_accumulate_until_speech_final():
     session = _make_session(sent, agent_sentences=[], tts_chunks=[])
 
     await session._on_transcript("je voudrais", is_final=True, speech_final=False)
-    assert session._speaking_task is None
+    # Une spéculation silencieuse démarre, mais aucun audio ne part
+    assert not session._go.is_set()
+    assert session.stats.turns == 0
     await session._on_transcript("un rendez-vous", is_final=True, speech_final=True)
     await session._speaking_task
     assert session.stats.turns == 1
@@ -94,12 +94,14 @@ async def test_barge_in_cancels_response_and_clears_buffer():
     await session._on_transcript("attendez", is_final=False, speech_final=False)
     await asyncio.sleep(0.01)
 
-    assert not session._is_speaking()
+    # L'audio est coupé (une spéculation silencieuse peut avoir pris la suite)
+    assert not session._go.is_set()
     assert session.stats.barge_ins == 1
     events = [json.loads(m)["event"] for m in sent]
     assert "clear" in events
     media_count = events.count("media")
     assert media_count < 1000  # la diffusion a bien été coupée en route
+    await session.close()  # nettoie la spéculation en attente
 
 
 @pytest.mark.asyncio
@@ -141,9 +143,11 @@ async def test_caller_can_interrupt_greeting():
     assert session._is_speaking()
 
     await session._on_transcript("bonjour j'appelle pour", is_final=False, speech_final=False)
-    assert not session._is_speaking()
+    # L'accueil est coupé ; une spéculation silencieuse peut avoir démarré
+    assert not session._go.is_set()
     assert session.stats.barge_ins == 1
     assert "clear" in [json.loads(m)["event"] for m in sent]
+    await session.close()
 
 
 @pytest.mark.parametrize("language", ["fr", "en"])

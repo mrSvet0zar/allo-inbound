@@ -10,8 +10,9 @@ côté Twilio — l'agent se tait immédiatement et repasse en écoute.
 import asyncio
 import contextlib
 import logging
+import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
 from anthropic import AsyncAnthropic
@@ -84,6 +85,13 @@ class CallSession:
         self._utterance_parts: list[str] = []
         self._speaking_task: asyncio.Task | None = None
         self._transferred = False
+        # Exécution spéculative : la génération démarre sur les transcripts
+        # provisoires, mais l'audio (et les outils) ne partent qu'une fois la
+        # fin de parole confirmée (_go levé). _speculative_text mémorise le
+        # texte sur lequel porte la spéculation en cours.
+        self._go = asyncio.Event()
+        self._commit_time: float | None = None
+        self._speculative_text: str | None = None
 
         self._stt = DeepgramStream(
             DeepgramConfig(
@@ -117,20 +125,40 @@ class CallSession:
         # C'est l'agent qui amorce la conversation : accueil dans sa vraie voix
         # dès l'ouverture du stream, interruptible comme n'importe quelle
         # réponse (même mécanisme _speaking_task → barge-in fonctionnel).
+        self._go.set()  # l'accueil est de l'audio réel, pas une spéculation
         self._speaking_task = asyncio.create_task(self._speak_greeting())
 
     async def _speak_greeting(self) -> None:
         """Prononce le message d'accueil (l'appelant n'a encore rien dit)."""
-        self._tts.reset_context()
         pacer = AudioPacer()
+        sentences = GREETING_SENTENCES[self.stream_info.language]
+        for sentence in sentences:
+            self.transcript_lines.append(f"Agent : {sentence}")
         try:
-            for sentence in GREETING_SENTENCES[self.stream_info.language]:
-                self.transcript_lines.append(f"Agent : {sentence}")
-                async for audio_chunk in self._tts.synthesize(sentence):
+            stream = None
+            with contextlib.suppress(Exception):
+                stream = await self._tts.acquire_stream()
+            if stream is None:
+                # Repli HTTP par phrase
+                self._tts.reset_context()
+                for sentence in sentences:
+                    async for audio_chunk in self._tts.synthesize(sentence):
+                        await pacer.pace(audio_chunk)
+                        await self._send_text(
+                            build_media_message(self.stream_info.stream_sid, audio_chunk)
+                        )
+                return
+            try:
+                for sentence in sentences:
+                    await stream.send_sentence(sentence)
+                await stream.end()
+                async for audio_chunk in stream.audio_chunks():
                     await pacer.pace(audio_chunk)
                     await self._send_text(
                         build_media_message(self.stream_info.stream_sid, audio_chunk)
                     )
+            finally:
+                await stream.close()
         except asyncio.CancelledError:
             raise  # l'appelant a parlé pendant l'accueil : on l'écoute
         except Exception:
@@ -140,12 +168,23 @@ class CallSession:
         """Chunk audio entrant (appelant) relayé vers le STT."""
         await self._stt.send_audio(mulaw_chunk)
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Compare les textes en ignorant casse, ponctuation et espaces —
+        le transcript provisoire et le final diffèrent souvent sur ces points."""
+        return re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç]+", "", text.lower())
+
     async def _on_transcript(self, text: str, is_final: bool, speech_final: bool) -> None:
-        # Barge-in : l'appelant parle pendant que l'agent diffuse une réponse
-        if self._is_speaking():
+        # Barge-in : l'appelant parle pendant que de l'audio est réellement
+        # diffusé (_go levé) — une spéculation en cours (silencieuse) n'a pas
+        # besoin de clear, elle est simplement remplacée plus bas.
+        if self._is_speaking() and self._go.is_set():
             await self._interrupt_agent()
 
         if not is_final:
+            # L'appelant parle encore : on spécule sur le transcript provisoire
+            candidate = " ".join([*self._utterance_parts, text]).strip()
+            await self._maybe_speculate(candidate)
             return
 
         self._utterance_parts.append(text)
@@ -156,7 +195,51 @@ class CallSession:
             self._utterance_parts = []
             self.stats.turns += 1
             logger.info("[%s] Tour #%d : %s", self.stream_info.call_sid, self.stats.turns, utterance)
-            self._speaking_task = asyncio.create_task(self._respond(utterance))
+            await self._commit_turn(utterance)
+        else:
+            # Segment finalisé mais l'appelant n'a pas fini son tour
+            await self._maybe_speculate(" ".join(self._utterance_parts))
+
+    async def _maybe_speculate(self, candidate: str) -> None:
+        """(Re)lance une génération spéculative si le texte candidat a changé."""
+        if not candidate:
+            return
+        if self._speculative_text is not None and self._normalize(candidate) == self._normalize(
+            self._speculative_text
+        ):
+            return  # spéculation déjà en cours sur ce texte
+        await self._cancel_speculation()
+        self._speculative_text = candidate
+        self._go = asyncio.Event()
+        self._speaking_task = asyncio.create_task(self._respond(candidate, self._go))
+
+    async def _commit_turn(self, utterance: str) -> None:
+        """Fin de parole confirmée : libère la spéculation si elle correspond,
+        sinon repart d'une génération fraîche."""
+        if (
+            self._speculative_text is not None
+            and self._is_speaking()
+            and self._normalize(utterance) == self._normalize(self._speculative_text)
+        ):
+            self._speculative_text = None
+            self._commit_time = time.monotonic()
+            self._go.set()
+            return
+        await self._cancel_speculation()
+        self._go = asyncio.Event()
+        self._go.set()
+        self._commit_time = time.monotonic()
+        self._speaking_task = asyncio.create_task(self._respond(utterance, self._go))
+
+    async def _cancel_speculation(self) -> None:
+        """Abandonne la spéculation en cours : tâche annulée + historique
+        de l'agent ramené à l'état d'avant le tour spéculatif."""
+        if self._speculative_text is None:
+            return
+        self._speculative_text = None
+        if self._is_speaking() and not self._go.is_set():
+            await self._cancel_speaking()
+        self._agent.rollback_turn()
 
     def _is_speaking(self) -> bool:
         return self._speaking_task is not None and not self._speaking_task.done()
@@ -174,32 +257,97 @@ class CallSession:
         await self._send_text(build_clear_message(self.stream_info.stream_sid))
         logger.info("[%s] Barge-in : réponse interrompue", self.stream_info.call_sid)
 
-    async def _respond(self, utterance: str) -> None:
-        """Génère la réponse (Claude → TTS) et la diffuse phrase par phrase."""
-        self._tts.reset_context()
-        turn_started = time.monotonic()
-        first_audio_sent = False
-        pacer = AudioPacer()
+    async def _send_paced(self, audio_chunk: bytes, pacer: AudioPacer, go: asyncio.Event) -> None:
+        """Attend la confirmation du tour (spéculation), cadence, puis envoie.
+
+        La mesure de latence (fin de parole confirmée → premier octet envoyé)
+        est faite par l'appelant de cette méthode.
+        """
+        if not go.is_set():
+            await go.wait()
+        # Cadence au débit de lecture réel : garde la tâche vivante pendant
+        # toute la durée de la parole pour que le barge-in (annulation +
+        # clear Twilio) soit réellement efficace.
+        await pacer.pace(audio_chunk)
+        await self._send_text(build_media_message(self.stream_info.stream_sid, audio_chunk))
+
+    def _record_turn_latency(self) -> None:
+        if self._commit_time is None:
+            return
+        latency_ms = int((time.monotonic() - self._commit_time) * 1000)
+        self.stats.turn_latencies_ms.append(latency_ms)
+        logger.info("[%s] Première syllabe en %dms", self.stream_info.call_sid, latency_ms)
+
+    async def _respond(self, utterance: str, go: asyncio.Event) -> None:
+        """Génère la réponse (Claude → TTS WebSocket) et la diffuse.
+
+        La génération démarre immédiatement (y compris en spéculation), mais
+        aucun octet n'est envoyé — et aucun outil n'est exécuté, cf run_turn —
+        tant que `go` n'est pas levé.
+        """
         try:
-            async for sentence in self._agent.run_turn(utterance):
-                self.transcript_lines.append(f"Agent : {sentence}")
-                async for audio_chunk in self._tts.synthesize(sentence):
-                    if not first_audio_sent:
-                        latency_ms = int((time.monotonic() - turn_started) * 1000)
-                        self.stats.turn_latencies_ms.append(latency_ms)
-                        logger.info(
-                            "[%s] Première syllabe en %dms",
-                            self.stream_info.call_sid,
-                            latency_ms,
-                        )
-                        first_audio_sent = True
-                    # Cadence au débit de lecture réel : garde la tâche vivante
-                    # pendant toute la durée de la parole pour que le barge-in
-                    # (annulation + clear Twilio) soit réellement efficace.
-                    await pacer.pace(audio_chunk)
-                    await self._send_text(
-                        build_media_message(self.stream_info.stream_sid, audio_chunk)
-                    )
+            agen = self._agent.run_turn(utterance, confirmed=go)
+            # La première phrase concentre la latence Claude : on l'attend
+            # avant d'ouvrir la session TTS, pour que les spéculations
+            # abandonnées tôt ne coûtent qu'une requête Claude annulée.
+            first_sentence = await anext(agen, None)
+            if first_sentence is None:
+                return
+
+            stream = None
+            with contextlib.suppress(Exception):
+                stream = await self._tts.acquire_stream()
+
+            pacer = AudioPacer()
+            first_audio_sent = False
+            if stream is None:
+                # Repli HTTP par phrase (session WebSocket indisponible)
+                logger.warning("[%s] TTS WebSocket indisponible, repli HTTP", self.stream_info.call_sid)
+                self._tts.reset_context()
+
+                async def _sentences() -> AsyncIterator[str]:
+                    yield first_sentence
+                    async for s in agen:
+                        yield s
+
+                async for sentence in _sentences():
+                    self.transcript_lines.append(f"Agent : {sentence}")
+                    async for audio_chunk in self._tts.synthesize(sentence):
+                        if not first_audio_sent:
+                            first_audio_sent = True
+                            if not go.is_set():
+                                await go.wait()
+                            self._record_turn_latency()
+                        await self._send_paced(audio_chunk, pacer, go)
+            else:
+
+                async def _feed() -> None:
+                    try:
+                        self.transcript_lines.append(f"Agent : {first_sentence}")
+                        await stream.send_sentence(first_sentence)
+                        async for sentence in agen:
+                            self.transcript_lines.append(f"Agent : {sentence}")
+                            await stream.send_sentence(sentence)
+                    finally:
+                        await stream.end()
+
+                feeder = asyncio.create_task(_feed())
+                try:
+                    async for audio_chunk in stream.audio_chunks():
+                        if not first_audio_sent:
+                            first_audio_sent = True
+                            if not go.is_set():
+                                await go.wait()
+                            self._record_turn_latency()
+                        await self._send_paced(audio_chunk, pacer, go)
+                    await feeder  # propage une éventuelle erreur Claude
+                finally:
+                    if not feeder.done():
+                        feeder.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await feeder
+                    await stream.close()
+
             # L'agent a demandé une escalade : transfert réel une fois sa
             # phrase d'annonce diffusée
             if self._agent.escalation_requested and not self._transferred:
@@ -213,7 +361,7 @@ class CallSession:
                 await asyncio.sleep(1.0)
                 await hang_up_call(self.settings, self.stream_info.call_sid)
         except asyncio.CancelledError:
-            raise  # barge-in : rien à faire, le buffer Twilio est déjà vidé
+            raise  # barge-in ou spéculation remplacée
         except Exception:
             logger.exception("[%s] Erreur pendant la réponse", self.stream_info.call_sid)
 
