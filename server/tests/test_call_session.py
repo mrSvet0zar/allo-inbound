@@ -112,6 +112,39 @@ async def test_close_cancels_ongoing_response():
     session._stt.close.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_greeting_spoken_at_call_start():
+    """L'agent amorce la conversation : accueil diffusé dès l'ouverture du stream."""
+    sent: list[str] = []
+    session = _make_session(sent, tts_chunks=[b"\x01"])
+    session._stt.connect = AsyncMock()
+
+    await session.start()
+    await session._speaking_task
+
+    events = [json.loads(m)["event"] for m in sent]
+    assert "media" in events  # de l'audio est parti sans que l'appelant ait parlé
+    greeting_lines = [line for line in session.transcript_lines if line.startswith("Agent :")]
+    assert len(greeting_lines) >= 2  # présentation + question d'orientation
+
+
+@pytest.mark.asyncio
+async def test_caller_can_interrupt_greeting():
+    """Le message d'accueil est interruptible comme n'importe quelle réponse."""
+    sent: list[str] = []
+    session = _make_session(sent, tts_chunks=[b"\x00"] * 1000)
+    session._stt.connect = AsyncMock()
+
+    await session.start()
+    await asyncio.sleep(0.01)  # l'accueil démarre
+    assert session._is_speaking()
+
+    await session._on_transcript("bonjour j'appelle pour", is_final=False, speech_final=False)
+    assert not session._is_speaking()
+    assert session.stats.barge_ins == 1
+    assert "clear" in [json.loads(m)["event"] for m in sent]
+
+
 @pytest.mark.parametrize("language", ["fr", "en"])
 def test_tts_uses_voice_matching_call_language(language):
     """La voix ElevenLabs choisie doit correspondre à la langue de l'appel."""

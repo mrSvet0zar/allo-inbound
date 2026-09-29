@@ -18,7 +18,7 @@ from anthropic import AsyncAnthropic
 
 from app.config import Settings
 from app.db.database import Database
-from app.llm.claude_agent import VoiceAgent
+from app.llm.claude_agent import GREETING_SENTENCES, VoiceAgent
 from app.llm.toolbox import AgentToolbox, InMemoryTicketRepo
 from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
 from app.observability.call_logs import CallLogEntry, CallLogRepo, InMemoryCallLogRepo
@@ -114,6 +114,27 @@ class CallSession:
             self.stream_info.call_sid,
             self.stream_info.stream_sid,
         )
+        # C'est l'agent qui amorce la conversation : accueil dans sa vraie voix
+        # dès l'ouverture du stream, interruptible comme n'importe quelle
+        # réponse (même mécanisme _speaking_task → barge-in fonctionnel).
+        self._speaking_task = asyncio.create_task(self._speak_greeting())
+
+    async def _speak_greeting(self) -> None:
+        """Prononce le message d'accueil (l'appelant n'a encore rien dit)."""
+        self._tts.reset_context()
+        pacer = AudioPacer()
+        try:
+            for sentence in GREETING_SENTENCES[self.stream_info.language]:
+                self.transcript_lines.append(f"Agent : {sentence}")
+                async for audio_chunk in self._tts.synthesize(sentence):
+                    await pacer.pace(audio_chunk)
+                    await self._send_text(
+                        build_media_message(self.stream_info.stream_sid, audio_chunk)
+                    )
+        except asyncio.CancelledError:
+            raise  # l'appelant a parlé pendant l'accueil : on l'écoute
+        except Exception:
+            logger.exception("[%s] Erreur pendant l'accueil", self.stream_info.call_sid)
 
     async def on_audio_chunk(self, mulaw_chunk: bytes) -> None:
         """Chunk audio entrant (appelant) relayé vers le STT."""

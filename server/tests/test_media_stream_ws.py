@@ -24,10 +24,12 @@ def _twilio_events():
     ]
 
 
+@patch("app.core.call_session.ElevenLabsTTS")
 @patch("app.core.call_session.DeepgramStream")
-def test_full_call_sequence(mock_stt_cls):
+def test_full_call_sequence(mock_stt_cls, mock_tts_cls):
     mock_stt = AsyncMock()
     mock_stt_cls.return_value = mock_stt
+    mock_tts_cls.return_value = AsyncMock()
 
     client = TestClient(app)
     with client.websocket_connect("/media-stream") as ws:

@@ -47,6 +47,20 @@ _FALLBACK_ERROR_SENTENCE = {
     "en": "I'm sorry, I'm having trouble. Let me transfer you to a human agent.",
 }
 
+# Message d'accueil prononcé par l'agent dès l'ouverture du stream (c'est lui
+# qui amorce la conversation, l'appelant ne devrait jamais avoir à dire "allô ?"
+# dans le vide). Une phrase par entrée : découpage déjà prêt pour le TTS.
+GREETING_SENTENCES = {
+    "fr": [
+        "Bonjour, je suis l'assistante vocale du cabinet !",
+        "C'est pour un rendez-vous, ou pour une question sur le cabinet ?",
+    ],
+    "en": [
+        "Hello, I'm the clinic's voice assistant!",
+        "Is this for an appointment, or do you have a question about the clinic?",
+    ],
+}
+
 SYSTEM_PROMPT = """Tu es l'assistant vocal téléphonique d'un cabinet de démonstration.
 Tu parles au téléphone : tes réponses sont ORALES, courtes (1 à 3 phrases),
 sans listes, sans markdown, sans emojis. Nombres et heures en toutes lettres
@@ -69,8 +83,9 @@ Tu gères deux types de demandes :
    documents, téléconsultation...) via la base de connaissances, et créer un
    ticket de suivi si la réponse n'y figure pas.
 
-En début d'appel, si la demande n'est pas claire, oriente en une question
-simple : "C'est pour un rendez-vous, ou pour une question sur le cabinet ?"
+Au décroché, l'appelant a déjà entendu ton message d'accueil : « {greeting} »
+Ne te représente pas, ne redis pas bonjour, et ne repose pas cette question
+d'orientation — la première phrase de l'appelant y répond généralement déjà.
 
 Règles impératives :
 - Avant de réserver, déplacer ou annuler, répète les détails et demande une
@@ -166,6 +181,7 @@ class VoiceAgent:
                         "text": SYSTEM_PROMPT.format(
                             today=datetime.now(tz=PARIS_TZ).date().isoformat(),
                             language_directive=_LANGUAGE_DIRECTIVES[self._language],
+                            greeting=" ".join(GREETING_SENTENCES[self._language]),
                         ),
                         "cache_control": {"type": "ephemeral"},
                     }

@@ -2,7 +2,12 @@
 
 from unittest.mock import MagicMock
 
-from app.llm.claude_agent import FILLER_SENTENCES, SentenceBuffer, VoiceAgent
+from app.llm.claude_agent import (
+    FILLER_SENTENCES,
+    GREETING_SENTENCES,
+    SentenceBuffer,
+    VoiceAgent,
+)
 from app.llm.toolbox import AgentToolbox, InMemoryTicketRepo
 from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
 from app.support.knowledge_base import InMemoryKnowledgeBase
@@ -76,3 +81,11 @@ def test_filler_sentences_defined_for_both_languages():
     assert FILLER_SENTENCES["en"]
     # aucune phrase française ne doit se glisser dans la liste anglaise et inversement
     assert not set(FILLER_SENTENCES["fr"]) & set(FILLER_SENTENCES["en"])
+
+
+def test_greeting_defined_for_both_languages():
+    for language in ("fr", "en"):
+        sentences = GREETING_SENTENCES[language]
+        assert len(sentences) >= 2  # présentation + question d'orientation
+        # chaque entrée est une phrase complète, prête pour un appel TTS
+        assert all(s.rstrip().endswith(("!", "?", ".")) for s in sentences)
