@@ -52,12 +52,10 @@ _FALLBACK_ERROR_SENTENCE = {
 # dans le vide). Une phrase par entrée : découpage déjà prêt pour le TTS.
 GREETING_SENTENCES = {
     "fr": [
-        "Bonjour, je suis l'assistante vocale du cabinet !",
-        "C'est pour un rendez-vous, ou pour une question sur le cabinet ?",
+        "Bonjour, assistante vocale du cabinet, que puis-je faire pour vous ?",
     ],
     "en": [
-        "Hello, I'm the clinic's voice assistant!",
-        "Is this for an appointment, or do you have a question about the clinic?",
+        "Hello, this is the clinic's voice assistant, how can I help you?",
     ],
 }
 
@@ -84,8 +82,8 @@ Tu gères deux types de demandes :
    ticket de suivi si la réponse n'y figure pas.
 
 Au décroché, l'appelant a déjà entendu ton message d'accueil : « {greeting} »
-Ne te représente pas, ne redis pas bonjour, et ne repose pas cette question
-d'orientation — la première phrase de l'appelant y répond généralement déjà.
+Ne te représente pas et ne redis pas bonjour — la première phrase de
+l'appelant exprime généralement déjà son besoin, réponds-y directement.
 
 Règles impératives :
 - Avant de réserver, déplacer ou annuler, répète les détails et demande une

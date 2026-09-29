@@ -86,6 +86,6 @@ def test_filler_sentences_defined_for_both_languages():
 def test_greeting_defined_for_both_languages():
     for language in ("fr", "en"):
         sentences = GREETING_SENTENCES[language]
-        assert len(sentences) >= 2  # présentation + question d'orientation
+        assert sentences
         # chaque entrée est une phrase complète, prête pour un appel TTS
         assert all(s.rstrip().endswith(("!", "?", ".")) for s in sentences)

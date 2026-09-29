@@ -125,7 +125,7 @@ async def test_greeting_spoken_at_call_start():
     events = [json.loads(m)["event"] for m in sent]
     assert "media" in events  # de l'audio est parti sans que l'appelant ait parlé
     greeting_lines = [line for line in session.transcript_lines if line.startswith("Agent :")]
-    assert len(greeting_lines) >= 2  # présentation + question d'orientation
+    assert greeting_lines  # l'accueil figure au transcript
 
 
 @pytest.mark.asyncio
