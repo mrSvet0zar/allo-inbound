@@ -155,6 +155,7 @@ class CallSession:
 
     async def _respond(self, utterance: str) -> None:
         """Génère la réponse (Claude → TTS) et la diffuse phrase par phrase."""
+        self._tts.reset_context()
         turn_started = time.monotonic()
         first_audio_sent = False
         pacer = AudioPacer()
