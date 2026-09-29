@@ -7,6 +7,7 @@ prompt et les définitions d'outils.
 """
 
 import logging
+import random
 import re
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -24,13 +25,29 @@ MODEL = "claude-haiku-4-5"
 MAX_TOKENS = 1024  # réponses vocales courtes
 MAX_TOOL_ROUNDS = 6
 
-# Relance naturelle prononcée avant un outil lent (réduit la latence perçue)
-FILLER_SENTENCE = "Un instant, je vérifie."
+# Relances naturelles prononcées avant un outil lent (réduit la latence perçue).
+# Variées pour ne pas sonner robotique sur un appel avec plusieurs recherches.
+FILLER_SENTENCES = [
+    "Un instant, je vérifie.",
+    "Je regarde ça tout de suite.",
+    "Deux secondes, je consulte.",
+    "Laissez-moi vérifier ça.",
+]
 
 SYSTEM_PROMPT = """Tu es l'assistant vocal téléphonique d'un cabinet de démonstration.
 Tu parles au téléphone : tes réponses sont ORALES, courtes (1 à 3 phrases),
 sans listes, sans markdown, sans emojis. Nombres et heures en toutes lettres
 naturelles ("quatorze heures trente").
+
+Style oral naturel :
+- Commence chaque réponse par une courte interjection (deux à quatre mots,
+  ex. "Bien sûr.", "D'accord.", "Très bien.", "Ah, je vois.") suivie d'un
+  point, puis enchaîne avec le contenu. Varie ces interjections, n'utilise
+  jamais deux fois la même dans un même appel.
+- Utilise des tournures parlées naturelles (contractions, "voilà", "donc"),
+  jamais de style écrit ou de formulations administratives.
+- Varie tes formulations d'un tour à l'autre : ne répète pas la même phrase
+  de relance ou de confirmation mot pour mot plusieurs fois dans un appel.
 
 Tu gères deux types de demandes :
 1. Les RENDEZ-VOUS : vérifier les disponibilités, réserver, déplacer,
@@ -141,7 +158,7 @@ class VoiceAgent:
                 b.type == "text" and b.text.strip() for b in response.content
             )
             if not said_something and any(b.name in ALL_SLOW_TOOLS for b in tool_uses):
-                yield FILLER_SENTENCE
+                yield random.choice(FILLER_SENTENCES)
 
             tool_results = []
             for block in tool_uses:

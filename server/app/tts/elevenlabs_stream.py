@@ -13,7 +13,19 @@ logger = logging.getLogger(__name__)
 
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
 DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # "Lily" — voix féminine, bon rendu FR
-MODEL_ID = "eleven_turbo_v2_5"  # latence minimale, multilingue
+# Flash v2.5 : latence la plus basse (~75-100ms) et débit le plus rapide en
+# streaming parmi les modèles testés — eleven_v4_turbo est plus expressif
+# mais génère ~2x plus lentement, ce qui risque de faire décrocher le flux
+# audio temps réel derrière la lecture côté appelant.
+MODEL_ID = "eleven_flash_v2_5"
+# stability plus bas + style > 0 : intonation plus vivante/naturelle qu'un
+# réglage neutre par défaut, sans sacrifier la stabilité au point de dériver
+VOICE_SETTINGS = {
+    "stability": 0.45,
+    "similarity_boost": 0.8,
+    "style": 0.15,
+    "use_speaker_boost": True,
+}
 
 
 class ElevenLabsTTS:
@@ -36,7 +48,7 @@ class ElevenLabsTTS:
             json={
                 "text": text,
                 "model_id": MODEL_ID,
-                "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+                "voice_settings": VOICE_SETTINGS,
             },
         ) as response:
             if response.status_code != 200:
