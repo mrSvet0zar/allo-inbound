@@ -24,6 +24,7 @@ from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
 from app.observability.call_logs import CallLogEntry, CallLogRepo, InMemoryCallLogRepo
 from app.stt.deepgram_stream import DeepgramConfig, DeepgramStream
 from app.support.knowledge_base import InMemoryKnowledgeBase
+from app.telephony.audio_pacer import AudioPacer
 from app.telephony.transfer import transfer_call_to_human
 from app.telephony.twilio_media import (
     MediaStreamStart,
@@ -156,6 +157,7 @@ class CallSession:
         """Génère la réponse (Claude → TTS) et la diffuse phrase par phrase."""
         turn_started = time.monotonic()
         first_audio_sent = False
+        pacer = AudioPacer()
         try:
             async for sentence in self._agent.run_turn(utterance):
                 self.transcript_lines.append(f"Agent : {sentence}")
@@ -169,6 +171,10 @@ class CallSession:
                             latency_ms,
                         )
                         first_audio_sent = True
+                    # Cadence au débit de lecture réel : garde la tâche vivante
+                    # pendant toute la durée de la parole pour que le barge-in
+                    # (annulation + clear Twilio) soit réellement efficace.
+                    await pacer.pace(audio_chunk)
                     await self._send_text(
                         build_media_message(self.stream_info.stream_sid, audio_chunk)
                     )
