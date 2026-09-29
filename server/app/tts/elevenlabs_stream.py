@@ -12,7 +12,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
-DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # "Lily" — voix féminine, bon rendu FR
+DEFAULT_VOICE_ID = "YxrwjAKoUKULGd0g8K9Y"  # voix française native, choisie pour le projet
 # Flash v2.5 : latence la plus basse (~75-100ms) et débit le plus rapide en
 # streaming parmi les modèles testés — eleven_v4_turbo est plus expressif
 # mais génère ~2x plus lentement, ce qui risque de faire décrocher le flux
