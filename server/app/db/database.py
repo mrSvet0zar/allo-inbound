@@ -137,7 +137,15 @@ class PostgresTicketRepo:
 
 
 class PostgresKnowledgeBase:
-    """Retrieval full-text français (websearch_to_tsquery + ts_rank)."""
+    """Retrieval full-text français, en deux temps.
+
+    1. Recherche stricte (websearch_to_tsquery = ET entre tous les mots) :
+       précise quand elle matche.
+    2. Repli en OU si rien ne matche : une question orale naturelle ("quels
+       types de consultation on peut faire chez vous") contient des mots
+       absents des entrées ("peut", "faire", "chez") qui font échouer le ET —
+       le OU classe alors par nombre de mots retrouvés (ts_rank).
+    """
 
     def __init__(self, pool: asyncpg.Pool):
         self._pool = pool
@@ -151,7 +159,26 @@ class PostgresKnowledgeBase:
             "ORDER BY rank DESC LIMIT $2",
             query, k,
         )
+        if not rows:
+            rows = await self._search_any_word(query, k)
         return [KBEntry(r["id"], r["question"], r["answer"]) for r in rows]
+
+    async def _search_any_word(self, query: str, k: int) -> list[asyncpg.Record]:
+        # Lexèmes du texte de la requête (stemming français), reliés par OU
+        lexemes = await self._pool.fetchval(
+            "SELECT tsvector_to_array(to_tsvector('french', $1))", query
+        )
+        if not lexemes:
+            return []
+        loose_query = " | ".join(lexemes)
+        return await self._pool.fetch(
+            "SELECT id, question, answer, "
+            "ts_rank(tsv, to_tsquery('french', $1)) AS rank "
+            "FROM knowledge_base "
+            "WHERE tsv @@ to_tsquery('french', $1) "
+            "ORDER BY rank DESC LIMIT $2",
+            loose_query, k,
+        )
 
     async def list_all(self) -> list[KBEntry]:
         rows = await self._pool.fetch("SELECT id, question, answer FROM knowledge_base ORDER BY id")
