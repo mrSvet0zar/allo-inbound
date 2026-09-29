@@ -13,10 +13,10 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
 
-    # STT
+    # STT — la langue est choisie par l'appelant via le menu DTMF (/voice),
+    # pas ici : cf app.telephony.twilio_media.DEFAULT_LANGUAGE
     deepgram_api_key: str = ""
     deepgram_model: str = "nova-3"
-    deepgram_language: str = "fr"
 
     # LLM (Phase 2)
     anthropic_api_key: str = ""

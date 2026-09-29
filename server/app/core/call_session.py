@@ -88,7 +88,7 @@ class CallSession:
             DeepgramConfig(
                 api_key=settings.deepgram_api_key,
                 model=settings.deepgram_model,
-                language=settings.deepgram_language,
+                language=stream_info.language,
             ),
             on_transcript=self._on_transcript,
         )
@@ -100,7 +100,9 @@ class CallSession:
             ticket_repo=db.tickets if db else shared_tickets,
             caller_phone=stream_info.caller_phone,
         )
-        self._agent = VoiceAgent(AsyncAnthropic(api_key=settings.anthropic_api_key), toolbox)
+        self._agent = VoiceAgent(
+            AsyncAnthropic(api_key=settings.anthropic_api_key), toolbox, language=stream_info.language
+        )
 
     async def start(self) -> None:
         await self._stt.connect()

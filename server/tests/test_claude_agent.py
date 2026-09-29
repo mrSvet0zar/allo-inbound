@@ -1,6 +1,11 @@
-"""Tests de l'agent vocal : découpage en phrases (unité TTS)."""
+"""Tests de l'agent vocal : découpage en phrases (unité TTS) et choix de langue."""
 
-from app.llm.claude_agent import SentenceBuffer
+from unittest.mock import MagicMock
+
+from app.llm.claude_agent import FILLER_SENTENCES, SentenceBuffer, VoiceAgent
+from app.llm.toolbox import AgentToolbox, InMemoryTicketRepo
+from app.llm.tools_rdv import InMemoryCalendar, ToolExecutor
+from app.support.knowledge_base import InMemoryKnowledgeBase
 
 
 def test_sentences_emitted_as_completed():
@@ -40,3 +45,34 @@ def test_flush_empty_returns_none():
     buf.feed("Fini. ")
     assert buf.feed("") == []
     assert buf.flush() is None
+
+
+def _make_agent(language="fr"):
+    toolbox = AgentToolbox(
+        rdv_executor=ToolExecutor(InMemoryCalendar()),
+        knowledge_base=InMemoryKnowledgeBase(),
+        ticket_repo=InMemoryTicketRepo(),
+    )
+    return VoiceAgent(MagicMock(), toolbox, language=language)
+
+
+def test_voice_agent_defaults_to_french():
+    agent = _make_agent()
+    assert agent._language == "fr"
+
+
+def test_voice_agent_accepts_english():
+    agent = _make_agent(language="en")
+    assert agent._language == "en"
+
+
+def test_voice_agent_unknown_language_falls_back_to_french():
+    agent = _make_agent(language="de")
+    assert agent._language == "fr"
+
+
+def test_filler_sentences_defined_for_both_languages():
+    assert FILLER_SENTENCES["fr"]
+    assert FILLER_SENTENCES["en"]
+    # aucune phrase française ne doit se glisser dans la liste anglaise et inversement
+    assert not set(FILLER_SENTENCES["fr"]) & set(FILLER_SENTENCES["en"])

@@ -27,12 +27,25 @@ MAX_TOOL_ROUNDS = 6
 
 # Relances naturelles prononcées avant un outil lent (réduit la latence perçue).
 # Variées pour ne pas sonner robotique sur un appel avec plusieurs recherches.
-FILLER_SENTENCES = [
-    "Un instant, je vérifie.",
-    "Je regarde ça tout de suite.",
-    "Deux secondes, je consulte.",
-    "Laissez-moi vérifier ça.",
-]
+FILLER_SENTENCES = {
+    "fr": [
+        "Un instant, je vérifie.",
+        "Je regarde ça tout de suite.",
+        "Deux secondes, je consulte.",
+        "Laissez-moi vérifier ça.",
+    ],
+    "en": [
+        "One moment, let me check.",
+        "I'll look that up right away.",
+        "Just a second, checking.",
+        "Let me verify that for you.",
+    ],
+}
+
+_FALLBACK_ERROR_SENTENCE = {
+    "fr": "Excusez-moi, je rencontre une difficulté. Je vous transfère à un conseiller.",
+    "en": "I'm sorry, I'm having trouble. Let me transfer you to a human agent.",
+}
 
 SYSTEM_PROMPT = """Tu es l'assistant vocal téléphonique d'un cabinet de démonstration.
 Tu parles au téléphone : tes réponses sont ORALES, courtes (1 à 3 phrases),
@@ -75,7 +88,21 @@ Règles impératives :
 - Reste dans ton périmètre : pour toute demande hors sujet, dis-le simplement
   et propose ton aide sur les rendez-vous.
 
+{language_directive}
+
 La date d'aujourd'hui est {today}."""
+
+# Directive de langue insérée dans le prompt. La base de connaissances et les
+# données du calendrier restent en français quelle que soit la langue choisie
+# par l'appelant — l'agent traduit à la volée ce qu'il en dit.
+_LANGUAGE_DIRECTIVES = {
+    "fr": "Réponds exclusivement en français.",
+    "en": (
+        "Respond exclusively in English, even though the knowledge base, tool "
+        "results and appointment data are in French — translate anything you "
+        "relay from them into natural English."
+    ),
+}
 
 # Fin de phrase : ponctuation forte suivie d'un espace. Une ponctuation en
 # toute fin de buffer n'émet pas (le delta suivant peut continuer, ex: "3." + "50") ;
@@ -109,9 +136,10 @@ class SentenceBuffer:
 class VoiceAgent:
     """Un agent par appel : conserve l'historique de conversation."""
 
-    def __init__(self, client: AsyncAnthropic, toolbox: AgentToolbox):
+    def __init__(self, client: AsyncAnthropic, toolbox: AgentToolbox, language: str = "fr"):
         self._client = client
         self._toolbox = toolbox
+        self._language = language if language in _LANGUAGE_DIRECTIVES else "fr"
         self._messages: list[dict] = []
         self.tool_calls_count = 0
 
@@ -127,7 +155,10 @@ class VoiceAgent:
                 system=[
                     {
                         "type": "text",
-                        "text": SYSTEM_PROMPT.format(today=datetime.now(tz=PARIS_TZ).date().isoformat()),
+                        "text": SYSTEM_PROMPT.format(
+                            today=datetime.now(tz=PARIS_TZ).date().isoformat(),
+                            language_directive=_LANGUAGE_DIRECTIVES[self._language],
+                        ),
                         "cache_control": {"type": "ephemeral"},
                     }
                 ],
@@ -158,7 +189,7 @@ class VoiceAgent:
                 b.type == "text" and b.text.strip() for b in response.content
             )
             if not said_something and any(b.name in ALL_SLOW_TOOLS for b in tool_uses):
-                yield random.choice(FILLER_SENTENCES)
+                yield random.choice(FILLER_SENTENCES[self._language])
 
             tool_results = []
             for block in tool_uses:
@@ -171,7 +202,7 @@ class VoiceAgent:
             self._messages.append({"role": "user", "content": tool_results})
 
         logger.warning("MAX_TOOL_ROUNDS atteint, fin de tour forcée")
-        yield "Excusez-moi, je rencontre une difficulté. Je vous transfère à un conseiller."
+        yield _FALLBACK_ERROR_SENTENCE[self._language]
 
     @property
     def escalation_requested(self) -> str | None:

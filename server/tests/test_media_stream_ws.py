@@ -39,12 +39,35 @@ def test_full_call_sequence(mock_stt_cls):
     mock_stt.close.assert_awaited_once()
 
 
-def test_voice_webhook_returns_twiml():
+def test_voice_webhook_returns_language_menu():
     client = TestClient(app)
     resp = client.post("/voice", data={"From": "+33612345678"})
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/xml")
+    assert "<Gather" in resp.text
+    assert "/voice/start" in resp.text
+
+
+def test_voice_start_webhook_returns_twiml():
+    client = TestClient(app)
+    resp = client.post("/voice/start", data={"From": "+33612345678", "Digits": "2"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/xml")
     assert "<Connect>" in resp.text
+    assert '<Parameter name="language" value="fr"/>' in resp.text
+
+
+def test_voice_start_english_choice():
+    client = TestClient(app)
+    resp = client.post("/voice/start", data={"From": "+33612345678", "Digits": "1"})
+    assert '<Parameter name="language" value="en"/>' in resp.text
+    assert "Hello, you are speaking" in resp.text
+
+
+def test_voice_start_no_digits_defaults_to_french():
+    client = TestClient(app)
+    resp = client.post("/voice/start", data={"From": "+33612345678"})
+    assert '<Parameter name="language" value="fr"/>' in resp.text
 
 
 def test_health():
