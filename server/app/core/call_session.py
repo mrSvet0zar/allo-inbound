@@ -30,7 +30,7 @@ from app.telephony.twilio_media import (
     build_clear_message,
     build_media_message,
 )
-from app.tts.elevenlabs_stream import ElevenLabsTTS
+from app.tts.elevenlabs_stream import ElevenLabsTTS, voice_id_for_language
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,9 @@ class CallSession:
             ),
             on_transcript=self._on_transcript,
         )
-        self._tts = ElevenLabsTTS(settings.elevenlabs_api_key)
+        self._tts = ElevenLabsTTS(
+            settings.elevenlabs_api_key, voice_id=voice_id_for_language(stream_info.language)
+        )
         calendar = db.calendar if db else shared_calendar
         toolbox = AgentToolbox(
             rdv_executor=ToolExecutor(calendar, caller_phone=stream_info.caller_phone),

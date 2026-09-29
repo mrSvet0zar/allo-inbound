@@ -12,7 +12,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
-DEFAULT_VOICE_ID = "YxrwjAKoUKULGd0g8K9Y"  # voix française native, choisie pour le projet
+
+# Une voix par langue, choisie pour son naturel dans cette langue plutôt que
+# de réutiliser une même voix multilingue — cf app.telephony.twilio_media
+# pour la liste des langues supportées et le choix par l'appelant (menu DTMF).
+VOICE_IDS_BY_LANGUAGE = {
+    "fr": "YxrwjAKoUKULGd0g8K9Y",  # voix française native, choisie pour le projet
+    "en": "7EzWGsX10sAS4c9m9cPf",  # voix anglophone native, choisie pour le projet
+}
+DEFAULT_VOICE_ID = VOICE_IDS_BY_LANGUAGE["fr"]
 # Flash v2.5 : latence la plus basse (~75-100ms) et débit le plus rapide en
 # streaming parmi les modèles testés — eleven_v4_turbo est plus expressif
 # mais génère ~2x plus lentement, ce qui risque de faire décrocher le flux
@@ -26,6 +34,11 @@ VOICE_SETTINGS = {
     "style": 0.15,
     "use_speaker_boost": True,
 }
+
+
+def voice_id_for_language(language: str) -> str:
+    """Voix à utiliser pour une langue donnée (repli sur le français)."""
+    return VOICE_IDS_BY_LANGUAGE.get(language, DEFAULT_VOICE_ID)
 
 
 class ElevenLabsTTS:

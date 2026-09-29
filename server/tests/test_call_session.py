@@ -9,6 +9,7 @@ import pytest
 from app.config import Settings
 from app.core.call_session import CallSession
 from app.telephony.twilio_media import MediaStreamStart
+from app.tts.elevenlabs_stream import VOICE_IDS_BY_LANGUAGE
 
 
 def _make_session(sent: list[str], agent_sentences=None, tts_chunks=None):
@@ -109,3 +110,21 @@ async def test_close_cancels_ongoing_response():
     await session.close()
     assert not session._is_speaking()
     session._stt.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("language", ["fr", "en"])
+def test_tts_uses_voice_matching_call_language(language):
+    """La voix ElevenLabs choisie doit correspondre à la langue de l'appel."""
+    with (
+        patch("app.core.call_session.DeepgramStream"),
+        patch("app.core.call_session.ElevenLabsTTS") as tts_cls,
+        patch("app.core.call_session.VoiceAgent"),
+        patch("app.core.call_session.AsyncAnthropic"),
+    ):
+        CallSession(
+            Settings(),
+            MediaStreamStart(stream_sid="MZ1", call_sid="CA1", caller_phone=None, language=language),
+            send_text=AsyncMock(),
+        )
+        tts_cls.assert_called_once()
+        assert tts_cls.call_args.kwargs["voice_id"] == VOICE_IDS_BY_LANGUAGE[language]
