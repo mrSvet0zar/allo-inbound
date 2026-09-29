@@ -83,6 +83,34 @@ def test_filler_sentences_defined_for_both_languages():
     assert not set(FILLER_SENTENCES["fr"]) & set(FILLER_SENTENCES["en"])
 
 
+def test_interrupted_speech_flushed_into_history():
+    """Ce qui a été prononcé avant une interruption est réinjecté dans
+    l'historique au tour suivant, avec la note d'interruption."""
+    agent = _make_agent()
+    agent._pending_spoken = ["Bien sûr.", "Demain j'ai trois créneaux :"]
+    agent._flush_interrupted_speech()
+
+    assert len(agent._messages) == 1
+    msg = agent._messages[0]
+    assert msg["role"] == "assistant"
+    assert "Demain j'ai trois créneaux" in msg["content"]
+    assert "interrompu" in msg["content"]
+    assert agent._pending_spoken == []
+
+
+def test_flush_noop_when_nothing_was_spoken():
+    agent = _make_agent()
+    agent._flush_interrupted_speech()
+    assert agent._messages == []
+
+
+def test_interruption_note_in_english_for_english_calls():
+    agent = _make_agent(language="en")
+    agent._pending_spoken = ["Sure."]
+    agent._flush_interrupted_speech()
+    assert "interrupted" in agent._messages[0]["content"]
+
+
 def test_greeting_defined_for_both_languages():
     for language in ("fr", "en"):
         sentences = GREETING_SENTENCES[language]

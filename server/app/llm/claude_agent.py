@@ -73,6 +73,13 @@ Style oral naturel :
   jamais de style écrit ou de formulations administratives.
 - Varie tes formulations d'un tour à l'autre : ne répète pas la même phrase
   de relance ou de confirmation mot pour mot plusieurs fois dans un appel.
+- Glisse de temps en temps — pas à chaque phrase — un léger marqueur oral
+  ("alors", "voyons", "hmm", "euh") comme le ferait une vraie personne au
+  téléphone. Avec parcimonie : une conversation, pas une caricature.
+- Si l'historique montre que ta réponse précédente a été interrompue par
+  l'appelant, ne reprends pas ce que tu disais : réponds directement à ce
+  qu'il vient de dire, en tenant compte de ce que tu as déjà eu le temps
+  de dire.
 
 Tu gères deux types de demandes :
 1. Les RENDEZ-VOUS : vérifier les disponibilités, réserver, déplacer,
@@ -157,6 +164,15 @@ class SentenceBuffer:
         return rest or None
 
 
+# Note ajoutée à l'historique quand une réponse a été coupée par l'appelant :
+# sans elle, le texte déjà prononcé disparaîtrait de l'historique et l'agent
+# ne saurait ni ce qu'il a dit, ni qu'il a été interrompu.
+_INTERRUPTION_NOTES = {
+    "fr": "…(interrompu par l'appelant à ce moment)",
+    "en": "…(interrupted by the caller at this point)",
+}
+
+
 class VoiceAgent:
     """Un agent par appel : conserve l'historique de conversation."""
 
@@ -165,10 +181,25 @@ class VoiceAgent:
         self._toolbox = toolbox
         self._language = language if language in _LANGUAGE_DIRECTIVES else "fr"
         self._messages: list[dict] = []
+        # Phrases émises depuis le dernier ajout à l'historique : si le tour
+        # est interrompu (tâche annulée par le barge-in), elles sont
+        # réinjectées comme réponse partielle au début du tour suivant.
+        self._pending_spoken: list[str] = []
         self.tool_calls_count = 0
+
+    def _flush_interrupted_speech(self) -> None:
+        """Réinjecte dans l'historique ce qui a été prononcé avant interruption."""
+        if not self._pending_spoken:
+            return
+        spoken = " ".join(self._pending_spoken)
+        self._pending_spoken = []
+        self._messages.append(
+            {"role": "assistant", "content": f"{spoken} {_INTERRUPTION_NOTES[self._language]}"}
+        )
 
     async def run_turn(self, user_text: str) -> AsyncIterator[str]:
         """Traite un tour de parole de l'appelant et émet des phrases de réponse."""
+        self._flush_interrupted_speech()
         self._messages.append({"role": "user", "content": user_text})
 
         for _ in range(MAX_TOOL_ROUNDS):
@@ -196,13 +227,17 @@ class VoiceAgent:
                         and event.delta.type == "text_delta"
                     ):
                         for sentence in buffer.feed(event.delta.text):
+                            self._pending_spoken.append(sentence)
                             yield sentence
                 response = await stream.get_final_message()
 
             if rest := buffer.flush():
+                self._pending_spoken.append(rest)
                 yield rest
 
             self._messages.append({"role": "assistant", "content": response.content})
+            # Le contenu complet du round est maintenant dans l'historique
+            self._pending_spoken = []
 
             tool_uses = [b for b in response.content if b.type == "tool_use"]
             if response.stop_reason != "tool_use" or not tool_uses:
@@ -214,7 +249,9 @@ class VoiceAgent:
                 b.type == "text" and b.text.strip() for b in response.content
             )
             if not said_something and any(b.name in ALL_SLOW_TOOLS for b in tool_uses):
-                yield random.choice(FILLER_SENTENCES[self._language])
+                filler = random.choice(FILLER_SENTENCES[self._language])
+                self._pending_spoken.append(filler)
+                yield filler
 
             tool_results = []
             for block in tool_uses:
@@ -227,7 +264,9 @@ class VoiceAgent:
             self._messages.append({"role": "user", "content": tool_results})
 
         logger.warning("MAX_TOOL_ROUNDS atteint, fin de tour forcée")
-        yield _FALLBACK_ERROR_SENTENCE[self._language]
+        fallback = _FALLBACK_ERROR_SENTENCE[self._language]
+        self._pending_spoken.append(fallback)
+        yield fallback
 
     @property
     def escalation_requested(self) -> str | None:

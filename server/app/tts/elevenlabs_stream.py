@@ -21,11 +21,12 @@ VOICE_IDS_BY_LANGUAGE = {
     "en": "7EzWGsX10sAS4c9m9cPf",  # voix anglophone native, choisie pour le projet
 }
 DEFAULT_VOICE_ID = VOICE_IDS_BY_LANGUAGE["fr"]
-# Flash v2.5 : latence la plus basse (~75-100ms) et débit le plus rapide en
-# streaming parmi les modèles testés — eleven_v4_turbo est plus expressif
-# mais génère ~2x plus lentement, ce qui risque de faire décrocher le flux
-# audio temps réel derrière la lecture côté appelant.
-MODEL_ID = "eleven_flash_v2_5"
+# v4 Turbo : le modèle le plus expressif d'ElevenLabs en temps réel. Sa
+# génération est ~2x plus lente que Flash v2.5 mais reste très au-dessus du
+# temps réel (mesuré x5.8 sur une phrase longue) — et depuis l'AudioPacer,
+# l'envoi est de toute façon cadencé au débit de lecture, donc seule compte
+# la latence au premier octet (+150ms vs Flash, accepté pour le naturel).
+MODEL_ID = "eleven_v4_turbo"
 # stability modérée + style > 0 : un peu d'expressivité sans tomber dans les
 # variations d'intonation erratiques qu'une stability trop basse peut produire
 VOICE_SETTINGS = {
