@@ -53,14 +53,19 @@ _FALLBACK_ERROR_SENTENCE = {
 # dans le vide). Une phrase par entrée : découpage déjà prêt pour le TTS.
 GREETING_SENTENCES = {
     "fr": [
-        "Bonjour, assistante vocale du cabinet, que puis-je faire pour vous ?",
+        "Bonjour, assistante vocale du cabinet des Célestins, que puis-je faire pour vous ?",
     ],
     "en": [
-        "Hello, this is the clinic's voice assistant, how can I help you?",
+        "Hello, this is the voice assistant of the Célestins medical practice, how can I help you?",
     ],
 }
 
-SYSTEM_PROMPT = """Tu es l'assistant vocal téléphonique d'un cabinet de démonstration.
+SYSTEM_PROMPT = """Tu es l'assistante vocale téléphonique du Cabinet Pluridisciplinaire
+des Célestins, un cabinet médical situé au 12 rue de la République à Lyon
+(cabinet fictif de démonstration). Le cabinet regroupe six spécialités :
+médecine générale, ophtalmologie, dermatologie, cardiologie, gynécologie
+médicale et pédiatrie — pour tout détail (praticiens, tarifs, examens...),
+utilise la base de connaissances, ne réponds pas de mémoire.
 Tu parles au téléphone : tes réponses sont ORALES, courtes (1 à 3 phrases),
 sans listes, sans markdown, sans emojis. Nombres et heures en toutes lettres
 naturelles ("quatorze heures trente").
