@@ -30,6 +30,7 @@ def _make_session(escalation: str | None):
             yield b"\x00"
 
         agent_cls.return_value.escalation_requested = escalation
+        agent_cls.return_value.end_call_requested = False
         session._agent.run_turn = run_turn
         session._tts.synthesize = synthesize
         session._stt = AsyncMock()

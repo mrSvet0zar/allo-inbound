@@ -16,7 +16,26 @@ from app.support.knowledge_base import KnowledgeBase
 
 logger = logging.getLogger(__name__)
 
-ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SUPPORT_TOOL_DEFINITIONS
+# Outils transverses aux deux cas d'usage
+COMMON_TOOL_DEFINITIONS: list[dict[str, Any]] = [
+    {
+        "name": "end_call",
+        "description": (
+            "Raccroche l'appel. À appeler UNIQUEMENT après avoir dit au revoir, "
+            "quand l'appelant a clairement indiqué que la conversation est "
+            "terminée (au revoir, merci c'est tout, non c'est bon...)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+]
+
+ALL_TOOL_DEFINITIONS = TOOL_DEFINITIONS + SUPPORT_TOOL_DEFINITIONS + COMMON_TOOL_DEFINITIONS
 ALL_SLOW_TOOLS = SLOW_TOOLS | SUPPORT_SLOW_TOOLS
 
 _RDV_TOOLS = {
@@ -73,6 +92,7 @@ class AgentToolbox:
         self._caller_phone = caller_phone
         self.use_case: str | None = None  # rdv | support
         self.events: list[str] = []  # booked, modified, cancelled, ticket_created, kb_answered
+        self.end_call_requested = False  # l'agent a demandé à raccrocher (fin d'appel)
 
     @property
     def escalation_requested(self) -> str | None:
@@ -102,6 +122,9 @@ class AgentToolbox:
             return await self._execute_support(name, args)
         if name == "escalate_to_human":
             return await self._rdv.execute(name, args)
+        if name == "end_call":
+            self.end_call_requested = True
+            return json.dumps({"fin_appel": True}, ensure_ascii=False)
         return json.dumps({"error": f"Outil inconnu : {name}"}, ensure_ascii=False)
 
     def _track_rdv_event(self, result_json: str) -> None:

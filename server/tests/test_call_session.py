@@ -41,6 +41,7 @@ def _make_session(sent: list[str], agent_sentences=None, tts_chunks=None):
 
         agent_cls.return_value.run_turn = run_turn
         agent_cls.return_value.escalation_requested = None
+        agent_cls.return_value.end_call_requested = False
         session._agent.run_turn = run_turn
         session._tts.synthesize = synthesize
         session._tts.close = AsyncMock()

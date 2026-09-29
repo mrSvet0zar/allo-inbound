@@ -25,7 +25,7 @@ from app.observability.call_logs import CallLogEntry, CallLogRepo, InMemoryCallL
 from app.stt.deepgram_stream import DeepgramConfig, DeepgramStream
 from app.support.knowledge_base import InMemoryKnowledgeBase
 from app.telephony.audio_pacer import AudioPacer
-from app.telephony.transfer import transfer_call_to_human
+from app.telephony.transfer import hang_up_call, transfer_call_to_human
 from app.telephony.twilio_media import (
     MediaStreamStart,
     build_clear_message,
@@ -206,6 +206,12 @@ class CallSession:
                 self._transferred = await transfer_call_to_human(
                     self.settings, self.stream_info.call_sid
                 )
+            # L'agent a dit au revoir et demandé la fin d'appel : on laisse
+            # Twilio finir de jouer le dernier chunk (le pacer nous amène déjà
+            # quasiment à la fin de l'audio), puis on raccroche proprement.
+            elif self._agent.end_call_requested:
+                await asyncio.sleep(1.0)
+                await hang_up_call(self.settings, self.stream_info.call_sid)
         except asyncio.CancelledError:
             raise  # barge-in : rien à faire, le buffer Twilio est déjà vidé
         except Exception:

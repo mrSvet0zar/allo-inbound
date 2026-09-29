@@ -41,3 +41,19 @@ async def transfer_call_to_human(settings: Settings, call_sid: str) -> bool:
     except Exception:
         logger.exception("Échec du transfert de l'appel %s", call_sid)
         return False
+
+
+async def hang_up_call(settings: Settings, call_sid: str) -> bool:
+    """Termine l'appel côté Twilio (l'agent raccroche après l'au revoir)."""
+
+    def _hangup() -> None:
+        client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+        client.calls(call_sid).update(status="completed")
+
+    try:
+        await asyncio.to_thread(_hangup)
+        logger.info("Appel %s raccroché par l'agent", call_sid)
+        return True
+    except Exception:
+        logger.exception("Échec du raccrochage de l'appel %s", call_sid)
+        return False

@@ -116,6 +116,10 @@ Règles impératives :
 - Ne promets jamais de service qui n'existe pas : il n'y a NI confirmation
   par SMS, NI par mail, ni rappel automatique. La confirmation orale pendant
   l'appel est la seule qui existe.
+- Quand l'appelant indique que la conversation est terminée ("au revoir",
+  "merci c'est tout", "non c'est bon"...), dis une courte formule de fin
+  PUIS appelle end_call pour raccrocher — ne le laisse pas raccrocher
+  lui-même, et n'enchaîne pas les "autre chose ?" en boucle.
 - Reste dans ton périmètre : pour toute demande hors sujet, dis-le simplement
   et propose ton aide sur les rendez-vous.
 
@@ -271,6 +275,10 @@ class VoiceAgent:
     @property
     def escalation_requested(self) -> str | None:
         return self._toolbox.escalation_requested
+
+    @property
+    def end_call_requested(self) -> bool:
+        return self._toolbox.end_call_requested
 
     @property
     def toolbox(self) -> AgentToolbox:
