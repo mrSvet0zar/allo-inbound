@@ -187,6 +187,25 @@ class InMemoryCalendar:
         )
 
 
+def _invalid_name_reason(nom: str) -> str | None:
+    """Rejette les 'noms' manifestement invalides.
+
+    Observé en appel réel : faute d'avoir obtenu le nom, le modèle a rempli
+    le champ avec sa propre question ("Votre nom s'il vous plaît ?") et
+    réservé quand même. Défense en profondeur, comme le contrôle de
+    double réservation.
+    """
+    cleaned = nom.strip()
+    if not cleaned:
+        return "Nom manquant."
+    if "?" in cleaned or len(cleaned) > 60:
+        return "Ce n'est pas un nom valide."
+    lowered = cleaned.lower()
+    if any(marker in lowered for marker in ("votre nom", "s'il vous plaît", "your name", "please")):
+        return "Ce n'est pas un nom valide."
+    return None
+
+
 class ToolExecutor:
     """Exécute les appels d'outils de l'agent et renvoie un résultat JSON (texte)."""
 
@@ -211,6 +230,11 @@ class ToolExecutor:
                 "creneaux_disponibles": [s.strftime("%H:%M") for s in slots],
             }
         if name == "book_appointment":
+            if reason := _invalid_name_reason(args["nom"]):
+                return {
+                    "error": f"{reason} Demandez son nom à l'appelant et attendez sa "
+                    "réponse avant de réserver."
+                }
             at = datetime.combine(
                 date.fromisoformat(args["date"]), time.fromisoformat(args["heure"])
             )

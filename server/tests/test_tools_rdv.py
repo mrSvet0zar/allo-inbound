@@ -88,6 +88,41 @@ async def test_invalid_date_returns_error_not_crash(executor):
     assert "error" in result
 
 
+@pytest.mark.parametrize(
+    "bad_name",
+    [
+        "Votre nom s'il vous plaît ?",  # cas observé en appel réel
+        "",
+        "   ",
+        "Quel est votre nom",
+        "Could you give me your name please",
+        "x" * 80,
+    ],
+)
+async def test_booking_rejects_invalid_names(executor, bad_name):
+    result = await _call(
+        executor,
+        "book_appointment",
+        {"date": MONDAY.isoformat(), "heure": "09:00", "nom": bad_name, "motif": "suivi"},
+    )
+    assert "error" in result
+    assert "nom" in result["error"].lower()
+    # rien n'a été réservé
+    avail = await _call(executor, "check_availability", {"date": MONDAY.isoformat()})
+    assert "09:00" in avail["creneaux_disponibles"]
+
+
+async def test_booking_accepts_normal_names(executor):
+    for nom in ("Milan", "Mme Lefèvre-Dupont", "Jean-Baptiste de la Tour"):
+        result = await _call(
+            executor,
+            "book_appointment",
+            {"date": MONDAY.isoformat(), "heure": "09:00", "nom": nom, "motif": "suivi"},
+        )
+        assert result.get("confirme") is True, f"{nom!r} aurait dû passer : {result}"
+        await _call(executor, "cancel_appointment", {"appointment_id": result["appointment_id"]})
+
+
 async def test_modify_appointment_flow(executor):
     booked = await _call(
         executor,
