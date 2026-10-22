@@ -1,8 +1,8 @@
 """Serveur temps réel Allo-IA.
 
-- POST /voice : webhook Twilio d'appel entrant → menu DTMF de choix de langue
-- POST /voice/start : après le choix de langue → TwiML qui annonce la
-  transparence IA (dans la langue choisie) puis ouvre le Media Stream
+- POST /voice : webhook Twilio d'appel entrant → ouvre directement le Media
+  Stream : l'IA décroche immédiatement (l'accueil ElevenLabs porte la
+  transparence IA + transcription, cf claude_agent.GREETING_SENTENCES)
 - WS /media-stream : flux audio bidirectionnel pendant toute la durée de l'appel
 """
 
@@ -20,10 +20,8 @@ from app.core.call_session import CallSession
 from app.db.database import Database
 from app.telephony.twilio_media import (
     TwilioEvent,
-    build_language_menu_twiml,
     build_stream_twiml,
     decode_media_payload,
-    digit_to_language,
     parse_message,
     parse_start,
 )
@@ -72,19 +70,9 @@ async def health() -> dict:
 
 @app.post("/voice")
 async def incoming_call(From: str = Form(default="")) -> Response:
-    """Webhook Twilio : un appel arrive sur le numéro → menu de choix de langue."""
+    """Webhook Twilio : l'IA décroche immédiatement (Media Stream direct)."""
     logger.info("Appel entrant de %s", From or "(numéro masqué)")
-    url = f"https://{settings.public_host}/voice/start"
-    twiml = build_language_menu_twiml(url)
-    return Response(content=twiml, media_type="application/xml")
-
-
-@app.post("/voice/start")
-async def voice_start(From: str = Form(default=""), Digits: str = Form(default="")) -> Response:
-    """Après le choix de langue : annonce de transparence IA puis Media Stream."""
-    language = digit_to_language(Digits)
-    logger.info("Langue choisie : %s (touche %r)", language, Digits)
-    twiml = build_stream_twiml(settings.public_host, language, caller_phone=From or None)
+    twiml = build_stream_twiml(settings.public_host, caller_phone=From or None)
     return Response(content=twiml, media_type="application/xml")
 
 

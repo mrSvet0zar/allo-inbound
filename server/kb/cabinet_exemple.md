@@ -130,6 +130,6 @@ de vue, dermatoscopies) sont remis en fin de consultation ou lors d'un
 rendez-vous de suivi. Aucun résultat n'est communiqué par téléphone.
 
 ## Parlez-vous anglais ? Do you speak English?
-Oui, plusieurs praticiens du cabinet consultent en anglais, et cet
-assistant téléphonique est disponible en anglais : appuyez sur la touche
-un en début d'appel.
+Oui, plusieurs praticiens du cabinet consultent en anglais — précisez-le
+simplement lors de la prise de rendez-vous. L'accueil téléphonique se fait
+en français.

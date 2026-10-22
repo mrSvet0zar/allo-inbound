@@ -90,56 +90,16 @@ def build_mark_message(stream_sid: str, name: str) -> str:
     return json.dumps({"event": "mark", "streamSid": stream_sid, "mark": {"name": name}})
 
 
-def build_language_menu_twiml(language_select_url: str) -> str:
-    """TwiML du tout premier webhook : menu DTMF de choix de langue.
+def build_stream_twiml(
+    public_host: str, language: str = DEFAULT_LANGUAGE, caller_phone: str | None = None
+) -> str:
+    """TwiML du webhook d'appel entrant : ouvre directement le Media Stream.
 
-    <Gather> capture une touche et poste sur `language_select_url` avec le
-    paramètre `Digits`. Si l'appelant ne tape rien avant le timeout, on
-    retombe sur le français par défaut (le <Redirect> après </Gather> n'est
-    joué que dans ce cas — un Digits capturé court-circuite directement vers
-    `action`).
-    """
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Gather numDigits="1" timeout="6" action="{language_select_url}" method="POST">
-    <Say language="fr-FR" voice="alice">Pour continuer en français, tapez 2.</Say>
-    <Say language="en-US" voice="alice">For English, press 1.</Say>
-  </Gather>
-  <Redirect method="POST">{language_select_url}?Digits=2</Redirect>
-</Response>"""
-
-
-# Touche DTMF -> code langue
-_LANGUAGE_DIGITS = {"1": "en", "2": "fr"}
-
-# Message de transparence IA (obligation légale, cf CLAUDE.md), par langue
-_DISCLAIMER = {
-    "fr": (
-        "Bonjour, vous êtes en relation avec l'assistant vocal de démonstration "
-        "Allo IA. Cet appel est transcrit pour assurer le service. Vous pouvez "
-        "demander un humain à tout moment."
-    ),
-    "en": (
-        "Hello, you are speaking with the Allo IA demonstration voice assistant. "
-        "This call is transcribed to provide the service. You may ask for a human "
-        "at any time."
-    ),
-}
-_DISCLAIMER_TWILIO_LOCALE = {"fr": "fr-FR", "en": "en-US"}
-
-
-def digit_to_language(digits: str | None) -> str:
-    """Touche DTMF -> code langue. Toute valeur inconnue retombe sur le défaut."""
-    return _LANGUAGE_DIGITS.get(digits or "", DEFAULT_LANGUAGE)
-
-
-def build_stream_twiml(public_host: str, language: str, caller_phone: str | None = None) -> str:
-    """TwiML renvoyé après le choix de langue : ouvre le Media Stream bidirectionnel.
-
-    Le message de transparence IA (obligation légale, cf CLAUDE.md) est prononcé
-    par <Say> AVANT l'ouverture du stream, dans la langue choisie : l'appelant
-    est informé qu'il parle à une IA et que l'appel est transcrit, même si le
-    pipeline échoue ensuite.
+    L'IA décroche immédiatement — aucune annonce <Say> robotique ni menu.
+    La transparence IA et la mention de transcription (obligation légale,
+    cf CLAUDE.md) sont portées par le message d'accueil ElevenLabs de
+    l'agent, première chose que l'appelant entend
+    (cf app.llm.claude_agent.GREETING_SENTENCES, testé pour ça).
     """
     if language not in SUPPORTED_LANGUAGES:
         language = DEFAULT_LANGUAGE
@@ -148,9 +108,6 @@ def build_stream_twiml(public_host: str, language: str, caller_phone: str | None
     )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say language="{_DISCLAIMER_TWILIO_LOCALE[language]}" voice="alice">
-    {_DISCLAIMER[language]}
-  </Say>
   <Connect>
     <Stream url="wss://{public_host}/media-stream">
       {caller_param}

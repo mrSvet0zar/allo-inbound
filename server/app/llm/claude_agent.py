@@ -51,12 +51,21 @@ _FALLBACK_ERROR_SENTENCE = {
 # Message d'accueil prononcé par l'agent dès l'ouverture du stream (c'est lui
 # qui amorce la conversation, l'appelant ne devrait jamais avoir à dire "allô ?"
 # dans le vide). Une phrase par entrée : découpage déjà prêt pour le TTS.
+#
+# C'est désormais la PREMIÈRE chose que l'appelant entend (plus aucun <Say>
+# Twilio en amont) : il porte donc les obligations légales du CLAUDE.md —
+# transparence IA ("assistante vocale") et mention de la transcription —
+# formulées naturellement. Ne pas les retirer (test dédié).
 GREETING_SENTENCES = {
     "fr": [
-        "Bonjour, assistante vocale du cabinet des Célestins, que puis-je faire pour vous ?",
+        "Cabinet des Célestins, bonjour !",
+        "Je suis l'assistante vocale du cabinet, et notre appel est transcrit.",
+        "Que puis-je faire pour vous ?",
     ],
     "en": [
-        "Hello, this is the voice assistant of the Célestins medical practice, how can I help you?",
+        "Célestins medical practice, hello!",
+        "I'm the practice's voice assistant, and our call is transcribed.",
+        "How can I help you?",
     ],
 }
 
@@ -71,10 +80,14 @@ sans listes, sans markdown, sans emojis. Nombres et heures en toutes lettres
 naturelles ("quatorze heures trente").
 
 Style oral naturel :
-- Commence chaque réponse par une courte interjection (deux à quatre mots,
-  ex. "Bien sûr.", "D'accord.", "Très bien.", "Ah, je vois.") suivie d'un
-  point, puis enchaîne avec le contenu. Varie ces interjections, n'utilise
-  jamais deux fois la même dans un même appel.
+- Ta PREMIÈRE phrase doit toujours être très courte (deux à six mots,
+  terminée par une ponctuation) — c'est elle qui part en synthèse vocale
+  en premier. Mais varie sa nature pour un rythme vivant : parfois une
+  interjection ("D'accord.", "Ah, je vois."), parfois une entrée directe
+  dans le sujet ("Alors, pour demain matin."), parfois une mini-réponse
+  ("Oui, tout à fait."). Jamais deux fois la même ouverture dans un appel,
+  et pas d'interjection systématique — une vraie personne n'acquiesce pas
+  à chaque tour.
 - Utilise des tournures parlées naturelles (contractions, "voilà", "donc"),
   jamais de style écrit ou de formulations administratives.
 - Varie tes formulations d'un tour à l'autre : ne répète pas la même phrase

@@ -3,14 +3,13 @@
 import base64
 import json
 
+from app.llm.claude_agent import GREETING_SENTENCES
 from app.telephony.twilio_media import (
     TwilioEvent,
     build_clear_message,
-    build_language_menu_twiml,
     build_media_message,
     build_stream_twiml,
     decode_media_payload,
-    digit_to_language,
     parse_message,
     parse_start,
 )
@@ -110,43 +109,28 @@ def test_build_clear_message():
     assert msg == {"event": "clear", "streamSid": "MZ9"}
 
 
-def test_twiml_announces_ai_before_stream():
-    """La transparence IA (obligation légale) doit précéder l'ouverture du stream."""
-    twiml = build_stream_twiml("example.fly.dev", "fr", caller_phone="+33600000000")
-    assert "assistant vocal" in twiml
-    assert "transcrit" in twiml  # consentement à la transcription
-    assert twiml.index("<Say") < twiml.index("<Connect>")
+def test_twiml_opens_stream_immediately():
+    """L'IA décroche directement : pas de <Say> robotique ni de menu."""
+    twiml = build_stream_twiml("example.fly.dev", caller_phone="+33600000000")
+    assert "<Say" not in twiml
+    assert "<Gather" not in twiml
     assert "wss://example.fly.dev/media-stream" in twiml
     assert 'value="+33600000000"' in twiml
     assert 'name="language" value="fr"' in twiml
 
 
-def test_twiml_english_disclaimer():
-    twiml = build_stream_twiml("example.fly.dev", "en")
-    assert "Hello, you are speaking" in twiml
-    assert 'language="en-US"' in twiml
-    assert 'name="language" value="en"' in twiml
-
-
 def test_twiml_unknown_language_falls_back_to_french():
     twiml = build_stream_twiml("example.fly.dev", "de")
-    assert "assistant vocal" in twiml
     assert 'name="language" value="fr"' in twiml
 
 
-def test_language_menu_twiml_structure():
-    twiml = build_language_menu_twiml("https://example.fly.dev/voice/start")
-    assert "<Gather" in twiml
-    assert 'action="https://example.fly.dev/voice/start"' in twiml
-    assert "français" in twiml
-    assert "English" in twiml
-    # Fallback si l'appelant ne tape rien : français par défaut
-    assert "Digits=2" in twiml
-
-
-def test_digit_to_language():
-    assert digit_to_language("1") == "en"
-    assert digit_to_language("2") == "fr"
-    assert digit_to_language(None) == "fr"
-    assert digit_to_language("") == "fr"
-    assert digit_to_language("9") == "fr"  # touche inconnue -> défaut
+def test_greeting_carries_legal_disclosure():
+    """Sans <Say> Twilio, l'accueil ElevenLabs est la première chose entendue :
+    c'est lui qui doit porter la transparence IA et la mention de la
+    transcription (obligations non négociables du CLAUDE.md)."""
+    fr = " ".join(GREETING_SENTENCES["fr"]).lower()
+    assert "assistante vocale" in fr  # l'appelant sait qu'il parle à une IA
+    assert "transcrit" in fr  # consentement à la transcription
+    en = " ".join(GREETING_SENTENCES["en"]).lower()
+    assert "voice assistant" in en
+    assert "transcribed" in en
