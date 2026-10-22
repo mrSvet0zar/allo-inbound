@@ -5,14 +5,16 @@
 # sont scriptés ; les attentes portent sur les outils appelés, le résultat de
 # l'appel et le comportement (confirmation avant action engageante).
 #
-# Dates fixes pour la reproductibilité : lundi 5 octobre 2026 → vendredi 9.
-# `setup.appointments` pré-remplit le calendrier (créneaux occupés ou RDV
-# existants de l'appelant).
+# DATES : toujours relatives ("lundi prochain", "demain") — jamais de date
+# absolue, le dataset doit rester valide quel que soit le jour d'exécution.
+# Dans `setup.appointments`, les placeholders {lundi_prochain} ...
+# {vendredi_prochain} sont résolus par le runner en dates réelles (jour
+# strictement futur, donc toujours ouvré).
 
 - name: rdv_simple
   description: Prise de RDV directe, l'appelant donne tout
   turns:
-    - "Bonjour, je voudrais prendre rendez-vous le lundi 5 octobre au matin."
+    - "Bonjour, je voudrais prendre rendez-vous lundi prochain au matin."
     - "9 heures 30, c'est très bien. Je m'appelle Martin Dupont, c'est pour une consultation de suivi."
     - "Oui, c'est bien ça, je confirme."
   expect:
@@ -25,11 +27,11 @@
   description: Le créneau souhaité est pris, l'agent doit proposer une alternative
   setup:
     appointments:
-      - { date: "2026-10-05", heure: "09:00", nom: "Occupant", motif: "x" }
-      - { date: "2026-10-05", heure: "09:30", nom: "Occupant", motif: "x" }
-      - { date: "2026-10-05", heure: "10:00", nom: "Occupant", motif: "x" }
+      - { date: "{lundi_prochain}", heure: "09:00", nom: "Occupant", motif: "x" }
+      - { date: "{lundi_prochain}", heure: "09:30", nom: "Occupant", motif: "x" }
+      - { date: "{lundi_prochain}", heure: "10:00", nom: "Occupant", motif: "x" }
   turns:
-    - "Bonjour, je voudrais un rendez-vous lundi 5 octobre à 9 heures."
+    - "Bonjour, je voudrais un rendez-vous lundi prochain à 9 heures du matin."
     - "Bon, alors plutôt l'après-midi, 15 heures si c'est possible. Je suis Claire Petit, pour un bilan."
     - "Oui je confirme."
   expect:
@@ -40,9 +42,9 @@
   description: Annulation d'un RDV existant retrouvé par nom
   setup:
     appointments:
-      - { date: "2026-10-06", heure: "14:00", nom: "Bernard Leroy", motif: "consultation" }
+      - { date: "{mardi_prochain}", heure: "14:00", nom: "Bernard Leroy", motif: "consultation" }
   turns:
-    - "Bonjour, je dois annuler mon rendez-vous de mardi. Je suis Bernard Leroy."
+    - "Bonjour, je dois annuler mon rendez-vous de mardi prochain. Je suis Bernard Leroy."
     - "Oui, celui de 14 heures, c'est ça. Je confirme l'annulation."
   expect:
     tools_called: [find_appointment, cancel_appointment]
@@ -53,9 +55,9 @@
   description: Déplacement d'un RDV existant vers un autre jour
   setup:
     appointments:
-      - { date: "2026-10-06", heure: "10:00", nom: "Sophie Marchand", motif: "suivi" }
+      - { date: "{mardi_prochain}", heure: "10:00", nom: "Sophie Marchand", motif: "suivi" }
   turns:
-    - "Bonjour, je suis Sophie Marchand, je voudrais déplacer mon rendez-vous de mardi 10 heures au jeudi 8 octobre, même heure si possible."
+    - "Bonjour, je suis Sophie Marchand, je voudrais déplacer mon rendez-vous de mardi prochain 10 heures au jeudi de la même semaine, même heure si possible."
     - "Oui, jeudi 10 heures, je confirme."
   expect:
     tools_called: [find_appointment, modify_appointment]
@@ -64,8 +66,8 @@
 - name: rdv_weekend_impossible
   description: Demande un samedi — l'agent doit expliquer et proposer un jour ouvré
   turns:
-    - "Bonjour, je voudrais un rendez-vous samedi 10 octobre."
-    - "Ah d'accord, tant pis. Alors vendredi 9 octobre à 11 heures ? Je suis Paul Girard, pour une consultation."
+    - "Bonjour, je voudrais un rendez-vous samedi prochain."
+    - "Ah d'accord, tant pis. Alors vendredi prochain à 11 heures ? Je suis Paul Girard, pour une consultation."
     - "Oui je confirme."
   expect:
     tools_called: [book_appointment]
@@ -74,7 +76,7 @@
 - name: rdv_sans_confirmation_pas_de_resa
   description: L'appelant ne confirme jamais — aucune réservation ne doit partir
   turns:
-    - "Bonjour, est-ce qu'il y a de la place lundi 5 octobre ?"
+    - "Bonjour, est-ce qu'il y a de la place lundi prochain pour une consultation ?"
     - "D'accord, merci, je vais réfléchir et je rappellerai. Au revoir."
   expect:
     tools_called: [check_availability]
@@ -147,10 +149,10 @@
     outcome: abandoned
 
 - name: orientation_ambigue
-  description: Début d'appel flou — l'agent doit poser la question d'orientation
+  description: Début d'appel flou — l'agent doit clarifier sans dérouler de listes
   turns:
     - "Euh, bonjour, voilà, en fait je vous appelle parce que... voilà quoi."
-    - "C'est pour un rendez-vous, mercredi 7 octobre vers 14 heures, je suis Julien Morel, consultation classique."
+    - "C'est pour un rendez-vous, mercredi prochain vers 14 heures, je suis Julien Morel, consultation classique."
     - "Oui c'est bien ça, je confirme."
   expect:
     tools_called: [book_appointment]
@@ -160,7 +162,7 @@
   description: Une question support puis une prise de RDV dans le même appel
   turns:
     - "Bonjour, d'abord une question : faut-il apporter des documents pour une première consultation ?"
-    - "Parfait. Du coup je voudrais prendre rendez-vous, vendredi 9 octobre à 9 heures. Amélie Rousseau, première consultation."
+    - "Parfait. Du coup je voudrais prendre rendez-vous, vendredi prochain à 9 heures. Amélie Rousseau, première consultation."
     - "Je confirme, oui."
   expect:
     tools_called: [search_knowledge_base, book_appointment]

@@ -90,6 +90,41 @@ def test_tools_called_helper():
     assert tools_called(BOOKING_TIMELINE) == ["check_availability", "book_appointment"]
 
 
+def test_resolve_date_placeholders():
+    from datetime import date
+
+    from eval.run_scenarios import resolve_date_placeholder
+
+    a_thursday = date(2026, 10, 22)  # jeudi
+    assert resolve_date_placeholder("{vendredi_prochain}", a_thursday) == "2026-10-23"
+    assert resolve_date_placeholder("{lundi_prochain}", a_thursday) == "2026-10-26"
+    # même jour de semaine -> strictement futur (+7)
+    assert resolve_date_placeholder("{jeudi_prochain}", a_thursday) == "2026-10-29"
+    # une date ISO explicite passe inchangée
+    assert resolve_date_placeholder("2026-12-01", a_thursday) == "2026-12-01"
+
+
+def test_scenarios_use_only_relative_dates():
+    """Garde-fou : un dataset à dates absolues se périme silencieusement
+    (l'agent corrige des dates passées au lieu de dérouler le scénario)."""
+    import re
+
+    scenarios = yaml.safe_load(
+        (Path(__file__).parent.parent / "eval" / "scenarios.yaml").read_text(encoding="utf-8")
+    )
+    for scenario in scenarios:
+        for appt in scenario.get("setup", {}).get("appointments", []):
+            assert appt["date"].startswith("{"), (
+                f"{scenario['name']} : date absolue {appt['date']!r} dans le setup — "
+                "utiliser un placeholder {jour_prochain}"
+            )
+        for turn in scenario["turns"]:
+            assert not re.search(r"\b20\d{2}\b|\d{1,2} (octobre|novembre|décembre|janvier"
+                                 r"|février|mars|avril|mai|juin|juillet|août|septembre)", turn), (
+                f"{scenario['name']} : date absolue dans un tour : {turn!r}"
+            )
+
+
 def test_scenarios_file_is_valid():
     """Le dataset se charge et respecte le format attendu par le runner."""
     scenarios = yaml.safe_load(

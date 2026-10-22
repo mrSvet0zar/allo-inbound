@@ -9,8 +9,14 @@ from typing import Any
 
 Timeline = list[tuple[str, str]]
 
-# Marqueurs d'une demande de confirmation orale dans une phrase de l'agent
-_CONFIRMATION_RE = re.compile(r"confirm|c'est bien|correct|d'accord\s*\?", re.IGNORECASE)
+# Marqueurs d'une demande de confirmation orale dans une phrase de l'agent.
+# Tournures réellement observées : "c'est bien ça ?", "c'est celui-là que
+# vous voulez annuler ?", "vous voulez dire ... ?", "je confirme : ..."
+_CONFIRMATION_RE = re.compile(
+    r"confirm|c'est bien|c'est ça|celui-là|celle-là|vous voulez (dire|annuler)"
+    r"|correct|d'accord\s*\?",
+    re.IGNORECASE,
+)
 
 
 def tools_called(timeline: Timeline) -> list[str]:

@@ -17,7 +17,7 @@ import json
 import statistics
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,30 @@ from app.support.knowledge_base import InMemoryKnowledgeBase
 from eval.checks import Timeline, check_expectations
 
 SCENARIOS_FILE = Path(__file__).parent / "scenarios.yaml"
+
+_WEEKDAYS = {
+    "{lundi_prochain}": 0,
+    "{mardi_prochain}": 1,
+    "{mercredi_prochain}": 2,
+    "{jeudi_prochain}": 3,
+    "{vendredi_prochain}": 4,
+}
+
+
+def resolve_date_placeholder(value: str, today: date | None = None) -> str:
+    """Résout '{lundi_prochain}' etc. en date ISO strictement future.
+
+    Les scénarios n'utilisent que des dates relatives pour rester valides
+    quel que soit le jour d'exécution (un dataset à dates absolues devient
+    silencieusement périmé : l'agent passe ses tours à corriger des dates
+    passées au lieu de dérouler le scénario — vécu).
+    """
+    weekday = _WEEKDAYS.get(value)
+    if weekday is None:
+        return value  # date ISO explicite, inchangée
+    today = today or datetime.now().date()  # noqa: DTZ005 — heure locale voulue
+    delta = (weekday - today.weekday()) % 7 or 7
+    return (today + timedelta(days=delta)).isoformat()
 
 
 class RecordingToolbox(AgentToolbox):
@@ -55,7 +79,8 @@ def _build_agent(scenario: dict, timeline: Timeline) -> VoiceAgent:
             Appointment(
                 id=i,
                 scheduled_at=datetime.combine(
-                    date.fromisoformat(appt["date"]), dtime.fromisoformat(appt["heure"])
+                    date.fromisoformat(resolve_date_placeholder(appt["date"])),
+                    dtime.fromisoformat(appt["heure"]),
                 ),
                 nom=appt["nom"],
                 motif=appt["motif"],
