@@ -35,7 +35,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "book_appointment",
         "description": (
             "Crée un rendez-vous. À n'appeler qu'APRÈS confirmation orale explicite "
-            "de l'appelant sur la date, l'heure et le motif."
+            "de l'appelant sur la date, l'heure et le motif. La spécialité n'est "
+            "JAMAIS requise : pour un motif générique (suivi, bilan, première "
+            "consultation), réserver en médecine générale sans poser de question."
         ),
         "input_schema": {
             "type": "object",
